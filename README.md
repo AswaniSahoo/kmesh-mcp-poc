@@ -201,9 +201,21 @@ mcp.NewStreamableHTTPHandler(
 )
 ```
 
-Its observable cost, shown in the transcript: `GET /mcp` returns **405 Method Not Allowed**,
-because a stateless server has no stream to open. The same server built with
-`Stateless: false` answers 400 instead.
+This is not a preference. `TestStatefulServerRejects20260728` posts the same request to both
+builds of the same server:
+
+```
+stateless=true   2026-07-28 -> 200
+stateless=false  2026-07-28 -> 400  protocol version "2026-07-28" is only supported on
+                                    stateless HTTP servers (set StreamableHTTPOptions.Stateless = true)
+```
+
+So on Streamable HTTP the flag decides whether you serve the current revision at all. The
+SDK's release notes say as much; the test is here because a claim like that is worth pinning
+to something executable.
+
+Its other observable cost, shown in the transcript: `GET /mcp` returns **405 Method Not
+Allowed**, because a stateless server has no stream to open.
 
 The SDK notes that the spec's stateless semantics are still settling. If they move,
 reverting is a one-line change in [internal/mcpserver/http.go](internal/mcpserver/http.go)
@@ -260,11 +272,18 @@ $ go test ./... -v
 === RUN   TestStatelessRejectsGET
 --- PASS: TestStatelessRejectsGET (0.00s)
 === RUN   TestBearerAuthRejectsBadToken
---- PASS: TestBearerAuthRejectsBadToken (0.00s)
+--- PASS: TestBearerAuthRejectsBadToken (0.01s)
+=== RUN   TestStatefulServerRejects20260728
+=== RUN   TestStatefulServerRejects20260728/stateless_serves_2026-07-28
+=== RUN   TestStatefulServerRejects20260728/stateful_and_2026-07-28
+=== RUN   TestStatefulServerRejects20260728/stateful_and_2025-11-25
+--- PASS: TestStatefulServerRejects20260728 (0.01s)
+=== RUN   TestStatelessAdvertisedVersions
+--- PASS: TestStatelessAdvertisedVersions (0.00s)
 PASS
 ```
 
-13 tests. The coverage is of the MCP layer and the daemon client, not of kmesh.
+15 tests. The coverage is of the MCP layer and the daemon client, not of kmesh.
 
 ---
 
