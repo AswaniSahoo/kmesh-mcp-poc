@@ -1,0 +1,700 @@
+
+==============================================================================
+0. Startup: the server probes the daemon once for its dataplane mode
+==============================================================================
+fixture kmesh daemon listening, impersonating a dual-engine dataplane
+GET http://127.0.0.1:50063/debug/config_dump/dual-engine -> 200
+GET http://127.0.0.1:50063/debug/config_dump/kernel-native -> 400 (kmesh answers "Invalid Client Mode" for the mode it is not in)
+=> resolved dataplane mode: "dual-engine"
+
+==============================================================================
+1. server/discover — mandatory in 2026-07-28; advertises versions, capabilities, identity
+==============================================================================
+// Note params._meta. Under SEP-2575 every request declares its protocol
+// version there. Setting only the MCP-Protocol-Version header is rejected
+// with -32602 "missing or invalid _meta field".
+
+-> POST /mcp
+   MCP-Protocol-Version: 2026-07-28   Mcp-Method: server/discover
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "method": "server/discover",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/clientCapabilities": {},
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+    }
+  }
+}
+
+<- 200 OK
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "resultType": "complete",
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "kmesh-mcp",
+        "title": "Kmesh",
+        "description": "Read-only tools over the kmesh daemon admin API.",
+        "version": "v0.1.0"
+      }
+    },
+    "ttlMs": 0,
+    "cacheScope": "public",
+    "supportedVersions": [
+      "2026-07-28",
+      "2025-11-25",
+      "2025-06-18",
+      "2025-03-26",
+      "2024-11-05"
+    ],
+    "capabilities": {
+      "logging": {},
+      "tools": {
+        "listChanged": true
+      }
+    },
+    "instructions": "Read-only access to a kmesh daemon at 127.0.0.1:50063. The daemon reported dataplane mode \"dual-engine\" at startup; kmesh_config_dump uses that mode when its mode argument is omitted."
+  }
+}
+
+==============================================================================
+2. tools/list — three tools, deterministically ordered, with cache hints
+==============================================================================
+
+-> POST /mcp
+   MCP-Protocol-Version: 2026-07-28   Mcp-Method: tools/list
+{
+  "id": 2,
+  "jsonrpc": "2.0",
+  "method": "tools/list",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/clientCapabilities": {},
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+    }
+  }
+}
+
+<- 200 OK
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "resultType": "complete",
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "kmesh-mcp",
+        "title": "Kmesh",
+        "description": "Read-only tools over the kmesh daemon admin API.",
+        "version": "v0.1.0"
+      }
+    },
+    "ttlMs": 0,
+    "cacheScope": "public",
+    "tools": [
+      {
+        "annotations": {
+          "idempotentHint": false,
+          "readOnlyHint": true
+        },
+        "description": "Dump the kmesh daemon's xDS configuration. Omit mode to use \"dual-engine\", which this server resolved from the daemon at startup.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "description": "kmesh dataplane mode; omit to use the mode this server resolved from the daemon at startup",
+              "enum": [
+                "kernel-native",
+                "dual-engine"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "name": "kmesh_config_dump",
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string"
+            },
+            "modeSource": {
+              "type": "string"
+            },
+            "dump": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "mode",
+            "modeSource",
+            "dump"
+          ],
+          "additionalProperties": false
+        },
+        "title": "Kmesh config dump"
+      },
+      {
+        "annotations": {
+          "idempotentHint": false,
+          "readOnlyHint": true
+        },
+        "description": "List the kmesh daemon's logger names, or report the level of one named logger.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "logger name; omit to list all logger names"
+            }
+          },
+          "additionalProperties": false
+        },
+        "name": "kmesh_get_loggers",
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "names": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "logger": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "level": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "title": "Kmesh loggers"
+      },
+      {
+        "annotations": {
+          "idempotentHint": false,
+          "readOnlyHint": true
+        },
+        "description": "Build and version information reported by the kmesh daemon.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "name": "kmesh_version",
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "address": {
+              "type": "string"
+            },
+            "daemon": {
+              "type": "object",
+              "properties": {
+                "gitVersion": {
+                  "type": "string"
+                },
+                "gitCommit": {
+                  "type": "string"
+                },
+                "gitTreeState": {
+                  "type": "string"
+                },
+                "buildDate": {
+                  "type": "string"
+                },
+                "goVersion": {
+                  "type": "string"
+                },
+                "compiler": {
+                  "type": "string"
+                },
+                "platform": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "gitVersion",
+                "gitCommit",
+                "gitTreeState",
+                "buildDate",
+                "goVersion",
+                "compiler",
+                "platform"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "address",
+            "daemon"
+          ],
+          "additionalProperties": false
+        },
+        "title": "Kmesh version"
+      }
+    ]
+  }
+}
+
+==============================================================================
+3. tools/call kmesh_version — the no-argument baseline
+==============================================================================
+
+-> POST /mcp
+   MCP-Protocol-Version: 2026-07-28   Mcp-Method: tools/call   Mcp-Name: kmesh_version
+{
+  "id": 3,
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/clientCapabilities": {},
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+    },
+    "arguments": {},
+    "name": "kmesh_version"
+  }
+}
+
+<- 200 OK
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "kmesh-mcp",
+        "title": "Kmesh",
+        "description": "Read-only tools over the kmesh daemon admin API.",
+        "version": "v0.1.0"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"address\":\"127.0.0.1:50063\",\"daemon\":{\"buildDate\":\"2026-08-02T00:00:00Z\",\"compiler\":\"gc\",\"gitCommit\":\"c88ef300\",\"gitTreeState\":\"clean\",\"gitVersion\":\"v1.2.0-fixture\",\"goVersion\":\"go1.25.0\",\"platform\":\"linux/amd64\"}}"
+      }
+    ],
+    "structuredContent": {
+      "address": "127.0.0.1:50063",
+      "daemon": {
+        "buildDate": "2026-08-02T00:00:00Z",
+        "compiler": "gc",
+        "gitCommit": "c88ef300",
+        "gitTreeState": "clean",
+        "gitVersion": "v1.2.0-fixture",
+        "goVersion": "go1.25.0",
+        "platform": "linux/amd64"
+      }
+    },
+    "resultType": "complete"
+  }
+}
+
+==============================================================================
+4. tools/call kmesh_config_dump WITH NO mode ARGUMENT
+==============================================================================
+// The mode argument is omitted entirely. The server answers with dual-engine
+// data because it resolved the mode from the daemon at startup, and says so
+// in modeSource. No session, no server-minted handle, no extra round trip.
+
+-> POST /mcp
+   MCP-Protocol-Version: 2026-07-28   Mcp-Method: tools/call   Mcp-Name: kmesh_config_dump
+{
+  "id": 4,
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/clientCapabilities": {},
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+    },
+    "arguments": {},
+    "name": "kmesh_config_dump"
+  }
+}
+
+<- 200 OK
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "result": {
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "kmesh-mcp",
+        "title": "Kmesh",
+        "description": "Read-only tools over the kmesh daemon admin API.",
+        "version": "v0.1.0"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"dump\":{\"policies\":[{\"action\":\"ALLOW\",\"name\":\"allow-productpage\",\"namespace\":\"default\",\"scope\":\"NAMESPACE\"}],\"services\":[{\"addresses\":[\"10.96.0.21\"],\"hostname\":\"productpage.default.svc.cluster.local\",\"name\":\"productpage\",\"namespace\":\"default\",\"ports\":[{\"servicePort\":9080,\"targetPort\":9080}]}],\"workloads\":[{\"addresses\":[\"10.244.0.11\"],\"canonicalName\":\"productpage\",\"canonicalRevision\":\"v1\",\"clusterId\":\"Kubernetes\",\"name\":\"productpage-v1-fixture\",\"namespace\":\"default\",\"network\":\"\",\"node\":\"kmesh-worker\",\"uid\":\"Kubernetes//Pod/default/productpage-v1-fixture\",\"workloadName\":\"productpage-v1\",\"workloadType\":\"Pod\"},{\"addresses\":[\"10.244.0.12\"],\"canonicalName\":\"reviews\",\"canonicalRevision\":\"v2\",\"clusterId\":\"Kubernetes\",\"name\":\"reviews-v2-fixture\",\"namespace\":\"default\",\"network\":\"\",\"node\":\"kmesh-worker\",\"uid\":\"Kubernetes//Pod/default/reviews-v2-fixture\",\"workloadName\":\"reviews-v2\",\"workloadType\":\"Pod\"}]},\"mode\":\"dual-engine\",\"modeSource\":\"startup-probe\"}"
+      }
+    ],
+    "structuredContent": {
+      "dump": {
+        "policies": [
+          {
+            "action": "ALLOW",
+            "name": "allow-productpage",
+            "namespace": "default",
+            "scope": "NAMESPACE"
+          }
+        ],
+        "services": [
+          {
+            "addresses": [
+              "10.96.0.21"
+            ],
+            "hostname": "productpage.default.svc.cluster.local",
+            "name": "productpage",
+            "namespace": "default",
+            "ports": [
+              {
+                "servicePort": 9080,
+                "targetPort": 9080
+              }
+            ]
+          }
+        ],
+        "workloads": [
+          {
+            "addresses": [
+              "10.244.0.11"
+            ],
+            "canonicalName": "productpage",
+            "canonicalRevision": "v1",
+            "clusterId": "Kubernetes",
+            "name": "productpage-v1-fixture",
+            "namespace": "default",
+            "network": "",
+            "node": "kmesh-worker",
+            "uid": "Kubernetes//Pod/default/productpage-v1-fixture",
+            "workloadName": "productpage-v1",
+            "workloadType": "Pod"
+          },
+          {
+            "addresses": [
+              "10.244.0.12"
+            ],
+            "canonicalName": "reviews",
+            "canonicalRevision": "v2",
+            "clusterId": "Kubernetes",
+            "name": "reviews-v2-fixture",
+            "namespace": "default",
+            "network": "",
+            "node": "kmesh-worker",
+            "uid": "Kubernetes//Pod/default/reviews-v2-fixture",
+            "workloadName": "reviews-v2",
+            "workloadType": "Pod"
+          }
+        ]
+      },
+      "mode": "dual-engine",
+      "modeSource": "startup-probe"
+    },
+    "resultType": "complete"
+  }
+}
+
+==============================================================================
+5. tools/call kmesh_get_loggers — optional string that changes the response shape
+==============================================================================
+
+-> POST /mcp
+   MCP-Protocol-Version: 2026-07-28   Mcp-Method: tools/call   Mcp-Name: kmesh_get_loggers
+{
+  "id": 5,
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/clientCapabilities": {},
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+    },
+    "arguments": {},
+    "name": "kmesh_get_loggers"
+  }
+}
+
+<- 200 OK
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "result": {
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "kmesh-mcp",
+        "title": "Kmesh",
+        "description": "Read-only tools over the kmesh daemon admin API.",
+        "version": "v0.1.0"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"names\":[\"default\",\"controller\",\"ads\",\"workload\",\"bpf\"]}"
+      }
+    ],
+    "structuredContent": {
+      "names": [
+        "default",
+        "controller",
+        "ads",
+        "workload",
+        "bpf"
+      ]
+    },
+    "resultType": "complete"
+  }
+}
+
+-> POST /mcp
+   MCP-Protocol-Version: 2026-07-28   Mcp-Method: tools/call   Mcp-Name: kmesh_get_loggers
+{
+  "id": 6,
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/clientCapabilities": {},
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+    },
+    "arguments": {
+      "name": "ads"
+    },
+    "name": "kmesh_get_loggers"
+  }
+}
+
+<- 200 OK
+{
+  "jsonrpc": "2.0",
+  "id": 6,
+  "result": {
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "kmesh-mcp",
+        "title": "Kmesh",
+        "description": "Read-only tools over the kmesh daemon admin API.",
+        "version": "v0.1.0"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"logger\":{\"level\":\"debug\",\"name\":\"ads\"}}"
+      }
+    ],
+    "structuredContent": {
+      "logger": {
+        "level": "debug",
+        "name": "ads"
+      }
+    },
+    "resultType": "complete"
+  }
+}
+
+==============================================================================
+6. Negative: an unknown mode is rejected by the schema, before the handler runs
+==============================================================================
+
+-> POST /mcp
+   MCP-Protocol-Version: 2026-07-28   Mcp-Method: tools/call   Mcp-Name: kmesh_config_dump
+{
+  "id": 7,
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/clientCapabilities": {},
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+    },
+    "arguments": {
+      "mode": "sidecar"
+    },
+    "name": "kmesh_config_dump"
+  }
+}
+
+<- 200 OK
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "result": {
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "kmesh-mcp",
+        "title": "Kmesh",
+        "description": "Read-only tools over the kmesh daemon admin API.",
+        "version": "v0.1.0"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "validating \"arguments\": validating root: validating /properties/mode: enum: sidecar does not equal any of: [kernel-native dual-engine]"
+      }
+    ],
+    "isError": true,
+    "resultType": "complete"
+  }
+}
+
+==============================================================================
+7. Negative: a mode the daemon is not running in comes back as a readable tool error
+==============================================================================
+
+-> POST /mcp
+   MCP-Protocol-Version: 2026-07-28   Mcp-Method: tools/call   Mcp-Name: kmesh_config_dump
+{
+  "id": 8,
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/clientCapabilities": {},
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+    },
+    "arguments": {
+      "mode": "kernel-native"
+    },
+    "name": "kmesh_config_dump"
+  }
+}
+
+<- 200 OK
+{
+  "jsonrpc": "2.0",
+  "id": 8,
+  "result": {
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "kmesh-mcp",
+        "title": "Kmesh",
+        "description": "Read-only tools over the kmesh daemon admin API.",
+        "version": "v0.1.0"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "daemon is not running in kernel-native mode; this daemon resolved to \"dual-engine\" at startup, so omit the mode argument or pass that value"
+      }
+    ],
+    "isError": true,
+    "resultType": "complete"
+  }
+}
+
+==============================================================================
+8. Version negotiation happens per request, not once per connection
+==============================================================================
+// This is what replaced the initialize handshake. A client declaring an
+// older but supported revision is served at that revision — note that
+// resultType is absent below, because it is a 2026-07-28 field.
+
+-> POST /mcp
+   MCP-Protocol-Version: 2025-06-18   Mcp-Method: tools/call   Mcp-Name: kmesh_version
+{
+  "id": 9,
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/clientCapabilities": {},
+      "io.modelcontextprotocol/protocolVersion": "2025-06-18"
+    },
+    "arguments": {},
+    "name": "kmesh_version"
+  }
+}
+
+<- 200 OK
+{
+  "jsonrpc": "2.0",
+  "id": 9,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"address\":\"127.0.0.1:50063\",\"daemon\":{\"buildDate\":\"2026-08-02T00:00:00Z\",\"compiler\":\"gc\",\"gitCommit\":\"c88ef300\",\"gitTreeState\":\"clean\",\"gitVersion\":\"v1.2.0-fixture\",\"goVersion\":\"go1.25.0\",\"platform\":\"linux/amd64\"}}"
+      }
+    ],
+    "structuredContent": {
+      "address": "127.0.0.1:50063",
+      "daemon": {
+        "buildDate": "2026-08-02T00:00:00Z",
+        "compiler": "gc",
+        "gitCommit": "c88ef300",
+        "gitTreeState": "clean",
+        "gitVersion": "v1.2.0-fixture",
+        "goVersion": "go1.25.0",
+        "platform": "linux/amd64"
+      }
+    }
+  }
+}
+
+==============================================================================
+9. Negative: a protocol version the server does not support
+==============================================================================
+// Same request, a revision that does not exist. The error carries the
+// versions the server does support, so the client can retry immediately.
+
+-> POST /mcp
+   MCP-Protocol-Version: 2023-01-01   Mcp-Method: tools/list
+{
+  "id": 10,
+  "jsonrpc": "2.0",
+  "method": "tools/list",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/clientCapabilities": {},
+      "io.modelcontextprotocol/protocolVersion": "2023-01-01"
+    }
+  }
+}
+
+<- 400 Bad Request
+Bad Request: Unsupported protocol version (supported versions: 2026-07-28,2025-11-25,2025-06-18,2025-03-26,2024-11-05)
+
+==============================================================================
+10. What Stateless: true costs — GET has no stream to open, so it is 405
+==============================================================================
+GET /mcp
+Accept: text/event-stream
+
+<- 405 Method Not Allowed
+Method Not Allowed
+
+==============================================================================
+11. The same server with Stateless: false, for comparison
+==============================================================================
+// Session-based behaviour is one struct field away. Whatever the spec's
+// stateless semantics settle into, this is the only line that changes.
+
+GET /mcp (Stateless: false)
+<- 400 Bad Request
