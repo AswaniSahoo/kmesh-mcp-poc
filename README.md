@@ -1,16 +1,20 @@
 # kmesh-mcp-poc
 
+[![CI](https://github.com/AswaniSahoo/kmesh-mcp-poc/actions/workflows/ci.yml/badge.svg)](https://github.com/AswaniSahoo/kmesh-mcp-poc/actions/workflows/ci.yml)
+
 A working MCP server for [kmesh](https://github.com/kmesh-net/kmesh), built against MCP
 protocol revision **2026-07-28**, that runs with **no Kubernetes cluster, no eBPF datapath
 and no root**.
 
-It exists to answer three questions in code rather than in prose:
+It exists to answer four questions in code rather than in prose:
 
 1. Does an MCP server for kmesh work under the 2026-07-28 revision, where the `initialize`
    handshake and `Mcp-Session-Id` are gone?
 2. If there is no protocol session, can the `mode` argument on a config-dump tool still be
    optional — or must every caller now pass it explicitly?
-3. How much of this can be demonstrated without a cluster?
+3. Can an agent's OpenTelemetry trace context survive the hop from MCP into the mesh's own
+   HTTP surface, so the two views of a call end up in one trace?
+4. How much of this can be demonstrated without a cluster?
 
 Short answers: yes; yes, and the mechanism is already in kmesh's own source; more than
 expected, but well short of everything — see [What this does not cover](#what-this-does-not-cover).
@@ -216,6 +220,47 @@ open question when the design was written; `TestConfigDumpRejectsUnknownMode` se
 
 ---
 
+## Trace context, which is where this stops being a generic MCP server
+
+The 2026-07-28 revision reserves `traceparent`, `tracestate` and `baggage` in `_meta` for
+OpenTelemetry trace context (SEP-414, Final), as an **explicit exception to the
+`io.modelcontextprotocol/` prefix rule**. The same revision deprecates MCP Logging and
+points implementations at OpenTelemetry instead (SEP-2577).
+
+For most servers that is a footnote. For a service mesh it is the point. kmesh exists to
+make service-to-service calls observable. If an agent calls `kmesh_config_dump`, the
+agent's view of that call and the mesh's view of the same call should be **one trace, not
+two**. That only happens if the trace context survives the hop out of MCP and into the
+daemon's own HTTP surface.
+
+So it does. The context arrives in `_meta` and leaves as W3C headers on the daemon request,
+same trace, fresh span:
+
+```
+in  (MCP _meta)      traceparent: 00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01
+out (daemon header)  traceparent: 00-0af7651916cd43dd8448eb211c80319c-52d14baaf6a13bce-01
+out (daemon header)  tracestate:  kmesh=abc
+out (daemon header)  baggage:     userId=42
+```
+
+Trace id preserved, span id replaced so the daemon call is a *child* of the tool call
+rather than a duplicate of it. `tracestate` and `baggage` pass through untouched, since
+their contents are vendor-defined.
+
+Three behaviours worth stating, each with a test:
+
+- A request with **no** `traceparent` produces **no** headers. We do not invent trace
+  context for clients that never asked for it.
+- A **malformed** `traceparent` does not fail the tool call. W3C Trace Context says a
+  receiver that cannot parse it should restart the trace rather than propagate something
+  invalid, so the call succeeds and the daemon hop goes out untraced.
+- Propagation is a property of the server, not of one handler. All three tools are covered.
+
+The go-sdk has no helper for these keys as of v1.7.0, so the parsing and propagation are
+implemented in [internal/tracectx](internal/tracectx).
+
+---
+
 ## Statelessness is one struct field
 
 ```go
@@ -269,47 +314,40 @@ ok  	github.com/AswaniSahoo/kmesh-mcp-poc/internal/mcpserver	3.844s
 
 ```
 $ go test ./... -v
-=== RUN   TestResolveModeReadsDaemon
-=== RUN   TestResolveModeReadsDaemon/kernel-native
-=== RUN   TestResolveModeReadsDaemon/dual-engine
 --- PASS: TestResolveModeReadsDaemon (0.01s)
-=== RUN   TestResolveModeFailsWhenDaemonHasNeitherMode
 --- PASS: TestResolveModeFailsWhenDaemonHasNeitherMode (0.00s)
-=== RUN   TestToolsListIsDeterministic
---- PASS: TestToolsListIsDeterministic (0.01s)
-=== RUN   TestConfigDumpToolAdvertisesEnum
---- PASS: TestConfigDumpToolAdvertisesEnum (0.00s)
-=== RUN   TestVersionTool
+--- PASS: TestToolsListIsDeterministic (0.02s)
+--- PASS: TestConfigDumpToolAdvertisesEnum (0.01s)
 --- PASS: TestVersionTool (0.01s)
-=== RUN   TestConfigDumpOmittedModeUsesStartupProbe
---- PASS: TestConfigDumpOmittedModeUsesStartupProbe (0.01s)
-=== RUN   TestConfigDumpExplicitModeOverrides
+--- PASS: TestConfigDumpOmittedModeUsesStartupProbe (0.00s)
 --- PASS: TestConfigDumpExplicitModeOverrides (0.01s)
-=== RUN   TestConfigDumpRejectsUnknownMode
---- PASS: TestConfigDumpRejectsUnknownMode (0.01s)
-=== RUN   TestConfigDumpWrongModeIsToolError
---- PASS: TestConfigDumpWrongModeIsToolError (0.01s)
-=== RUN   TestGetLoggersListsNames
---- PASS: TestGetLoggersListsNames (0.01s)
-=== RUN   TestGetLoggersReturnsOneLevel
---- PASS: TestGetLoggersReturnsOneLevel (0.01s)
-=== RUN   TestStatelessRejectsGET
+--- PASS: TestConfigDumpRejectsUnknownMode (0.00s)
+--- PASS: TestConfigDumpWrongModeIsToolError (0.00s)
+--- PASS: TestGetLoggersListsNames (0.00s)
+--- PASS: TestGetLoggersReturnsOneLevel (0.00s)
 --- PASS: TestStatelessRejectsGET (0.00s)
-=== RUN   TestBearerAuthRejectsBadToken
---- PASS: TestBearerAuthRejectsBadToken (0.01s)
-=== RUN   TestStatefulServerRejects20260728
-=== RUN   TestStatefulServerRejects20260728/stateless_serves_2026-07-28
-=== RUN   TestStatefulServerRejects20260728/stateful_and_2026-07-28
-=== RUN   TestStatefulServerRejects20260728/stateful_and_2025-11-25
+--- PASS: TestBearerAuthRejectsBadToken (0.00s)
 --- PASS: TestStatefulServerRejects20260728 (0.01s)
-=== RUN   TestStatelessAdvertisedVersions
 --- PASS: TestStatelessAdvertisedVersions (0.00s)
-PASS
+--- PASS: TestTraceContextReachesTheDaemon (0.00s)
+--- PASS: TestTraceContextOnEveryTool (0.01s)
+--- PASS: TestUntracedRequestSendsNoHeader (0.00s)
+--- PASS: TestMalformedTraceparentDoesNotFailTheCall (0.00s)
+ok  	github.com/AswaniSahoo/kmesh-mcp-poc/internal/mcpserver
+--- PASS: TestParseSpecExample (0.00s)
+--- PASS: TestParseRejects (0.00s)
+--- PASS: TestSampledBit (0.00s)
+--- PASS: TestFromMeta (0.00s)
+--- PASS: TestChildKeepsTraceDropsSpan (0.00s)
+--- PASS: TestRandomSpanIDIsUsableAndDistinct (0.00s)
+--- PASS: TestHeaders (0.00s)
+ok  	github.com/AswaniSahoo/kmesh-mcp-poc/internal/tracectx
 ```
 
-![go test ./... -v output: all fifteen tests passing, including the enum rejection message and the stateful-versus-stateless protocol comparison](assets/tests.png)
+![go test ./... -v output, showing the suite passing, including the enum rejection message and the stateful-versus-stateless protocol comparison](assets/tests.png)
 
-15 tests. The coverage is of the MCP layer and the daemon client, not of kmesh.
+26 tests across two packages. The coverage is of the MCP layer, the trace-context
+handling and the daemon client, not of kmesh.
 
 ---
 
@@ -339,6 +377,14 @@ the request path and really does reject bad tokens — `TestBearerAuthRejectsBad
 that. The verifier behind it compares against a fixed string. A real deployment replaces
 [internal/tokenauth](internal/tokenauth) with a Kubernetes TokenReview call and changes
 nothing else. **mTLS is not addressed at all.**
+
+**Trace context is propagated, not produced.** [internal/tracectx](internal/tracectx)
+parses W3C trace context out of `_meta` and continues it as headers on the daemon call.
+It does **not** emit OpenTelemetry spans, register a `TracerProvider`, or export anything
+to a collector. There is no OTel SDK dependency here at all. A real deployment would add
+one; what is proven is that the context survives the hop, not that anything is recorded.
+The kmesh side is also unproven: whether the daemon does anything useful with a
+`traceparent` header today was not tested, because that needs a live daemon.
 
 **Read-only.** No `log set`, no `authz enable/disable`, no monitoring toggles. Every tool is
 a GET.

@@ -3,8 +3,8 @@
 0. Startup: the server probes the daemon once for its dataplane mode
 ==============================================================================
 fixture kmesh daemon listening, impersonating a dual-engine dataplane
-GET http://127.0.0.1:50063/debug/config_dump/dual-engine -> 200
-GET http://127.0.0.1:50063/debug/config_dump/kernel-native -> 400 (kmesh answers "Invalid Client Mode" for the mode it is not in)
+GET http://127.0.0.1:58696/debug/config_dump/dual-engine -> 200
+GET http://127.0.0.1:58696/debug/config_dump/kernel-native -> 400 (kmesh answers "Invalid Client Mode" for the mode it is not in)
 => resolved dataplane mode: "dual-engine"
 
 ==============================================================================
@@ -57,7 +57,7 @@ GET http://127.0.0.1:50063/debug/config_dump/kernel-native -> 400 (kmesh answers
         "listChanged": true
       }
     },
-    "instructions": "Read-only access to a kmesh daemon at 127.0.0.1:50063. The daemon reported dataplane mode \"dual-engine\" at startup; kmesh_config_dump uses that mode when its mode argument is omitted."
+    "instructions": "Read-only access to a kmesh daemon at 127.0.0.1:58696. The daemon reported dataplane mode \"dual-engine\" at startup; kmesh_config_dump uses that mode when its mode argument is omitted."
   }
 }
 
@@ -291,11 +291,11 @@ GET http://127.0.0.1:50063/debug/config_dump/kernel-native -> 400 (kmesh answers
     "content": [
       {
         "type": "text",
-        "text": "{\"address\":\"127.0.0.1:50063\",\"daemon\":{\"buildDate\":\"2026-08-02T00:00:00Z\",\"compiler\":\"gc\",\"gitCommit\":\"c88ef300\",\"gitTreeState\":\"clean\",\"gitVersion\":\"v1.2.0-fixture\",\"goVersion\":\"go1.25.0\",\"platform\":\"linux/amd64\"}}"
+        "text": "{\"address\":\"127.0.0.1:58696\",\"daemon\":{\"buildDate\":\"2026-08-02T00:00:00Z\",\"compiler\":\"gc\",\"gitCommit\":\"c88ef300\",\"gitTreeState\":\"clean\",\"gitVersion\":\"v1.2.0-fixture\",\"goVersion\":\"go1.25.0\",\"platform\":\"linux/amd64\"}}"
       }
     ],
     "structuredContent": {
-      "address": "127.0.0.1:50063",
+      "address": "127.0.0.1:58696",
       "daemon": {
         "buildDate": "2026-08-02T00:00:00Z",
         "compiler": "gc",
@@ -640,11 +640,11 @@ GET http://127.0.0.1:50063/debug/config_dump/kernel-native -> 400 (kmesh answers
     "content": [
       {
         "type": "text",
-        "text": "{\"address\":\"127.0.0.1:50063\",\"daemon\":{\"buildDate\":\"2026-08-02T00:00:00Z\",\"compiler\":\"gc\",\"gitCommit\":\"c88ef300\",\"gitTreeState\":\"clean\",\"gitVersion\":\"v1.2.0-fixture\",\"goVersion\":\"go1.25.0\",\"platform\":\"linux/amd64\"}}"
+        "text": "{\"address\":\"127.0.0.1:58696\",\"daemon\":{\"buildDate\":\"2026-08-02T00:00:00Z\",\"compiler\":\"gc\",\"gitCommit\":\"c88ef300\",\"gitTreeState\":\"clean\",\"gitVersion\":\"v1.2.0-fixture\",\"goVersion\":\"go1.25.0\",\"platform\":\"linux/amd64\"}}"
       }
     ],
     "structuredContent": {
-      "address": "127.0.0.1:50063",
+      "address": "127.0.0.1:58696",
       "daemon": {
         "buildDate": "2026-08-02T00:00:00Z",
         "compiler": "gc",
@@ -691,7 +691,128 @@ Accept: text/event-stream
 Method Not Allowed
 
 ==============================================================================
-11. The same server with Stateless: false, for comparison
+11. Trace context crossing from MCP into the mesh (SEP-414)
+==============================================================================
+// The 2026-07-28 revision reserves traceparent/tracestate/baggage in _meta
+// for OpenTelemetry trace context, as an explicit exception to the
+// io.modelcontextprotocol/ prefix rule. For a service mesh that is not a
+// footnote: unless the trace survives the hop into the daemon, the agent's
+// view of a call and the mesh's view of the same call are two unrelated
+// traces. Below, the same trace id comes out the other side with a new
+// span id, so the daemon call is a child of the tool call.
+
+-> POST /mcp
+   MCP-Protocol-Version: 2026-07-28   Mcp-Method: tools/call   Mcp-Name: kmesh_config_dump
+{
+  "id": 11,
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "_meta": {
+      "baggage": "userId=42",
+      "io.modelcontextprotocol/clientCapabilities": {},
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "traceparent": "00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01",
+      "tracestate": "kmesh=abc"
+    },
+    "arguments": {},
+    "name": "kmesh_config_dump"
+  }
+}
+
+<- 200 OK
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "result": {
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "kmesh-mcp",
+        "title": "Kmesh",
+        "description": "Read-only tools over the kmesh daemon admin API.",
+        "version": "v0.1.0"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"dump\":{\"policies\":[{\"action\":\"ALLOW\",\"name\":\"allow-productpage\",\"namespace\":\"default\",\"scope\":\"NAMESPACE\"}],\"services\":[{\"addresses\":[\"10.96.0.21\"],\"hostname\":\"productpage.default.svc.cluster.local\",\"name\":\"productpage\",\"namespace\":\"default\",\"ports\":[{\"servicePort\":9080,\"targetPort\":9080}]}],\"workloads\":[{\"addresses\":[\"10.244.0.11\"],\"canonicalName\":\"productpage\",\"canonicalRevision\":\"v1\",\"clusterId\":\"Kubernetes\",\"name\":\"productpage-v1-fixture\",\"namespace\":\"default\",\"network\":\"\",\"node\":\"kmesh-worker\",\"uid\":\"Kubernetes//Pod/default/productpage-v1-fixture\",\"workloadName\":\"productpage-v1\",\"workloadType\":\"Pod\"},{\"addresses\":[\"10.244.0.12\"],\"canonicalName\":\"reviews\",\"canonicalRevision\":\"v2\",\"clusterId\":\"Kubernetes\",\"name\":\"reviews-v2-fixture\",\"namespace\":\"default\",\"network\":\"\",\"node\":\"kmesh-worker\",\"uid\":\"Kubernetes//Pod/default/reviews-v2-fixture\",\"workloadName\":\"reviews-v2\",\"workloadType\":\"Pod\"}]},\"mode\":\"dual-engine\",\"modeSource\":\"startup-probe\"}"
+      }
+    ],
+    "structuredContent": {
+      "dump": {
+        "policies": [
+          {
+            "action": "ALLOW",
+            "name": "allow-productpage",
+            "namespace": "default",
+            "scope": "NAMESPACE"
+          }
+        ],
+        "services": [
+          {
+            "addresses": [
+              "10.96.0.21"
+            ],
+            "hostname": "productpage.default.svc.cluster.local",
+            "name": "productpage",
+            "namespace": "default",
+            "ports": [
+              {
+                "servicePort": 9080,
+                "targetPort": 9080
+              }
+            ]
+          }
+        ],
+        "workloads": [
+          {
+            "addresses": [
+              "10.244.0.11"
+            ],
+            "canonicalName": "productpage",
+            "canonicalRevision": "v1",
+            "clusterId": "Kubernetes",
+            "name": "productpage-v1-fixture",
+            "namespace": "default",
+            "network": "",
+            "node": "kmesh-worker",
+            "uid": "Kubernetes//Pod/default/productpage-v1-fixture",
+            "workloadName": "productpage-v1",
+            "workloadType": "Pod"
+          },
+          {
+            "addresses": [
+              "10.244.0.12"
+            ],
+            "canonicalName": "reviews",
+            "canonicalRevision": "v2",
+            "clusterId": "Kubernetes",
+            "name": "reviews-v2-fixture",
+            "namespace": "default",
+            "network": "",
+            "node": "kmesh-worker",
+            "uid": "Kubernetes//Pod/default/reviews-v2-fixture",
+            "workloadName": "reviews-v2",
+            "workloadType": "Pod"
+          }
+        ]
+      },
+      "mode": "dual-engine",
+      "modeSource": "startup-probe"
+    },
+    "resultType": "complete"
+  }
+}
+
+// what the kmesh daemon actually received on its own HTTP request:
+   in  (MCP _meta)      traceparent: 00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01
+   out (daemon header)  traceparent: 00-0af7651916cd43dd8448eb211c80319c-52d14baaf6a13bce-01
+   out (daemon header)  tracestate:  kmesh=abc
+   out (daemon header)  baggage:     userId=42
+
+==============================================================================
+12. The same server with Stateless: false, for comparison
 ==============================================================================
 // Session-based behaviour is one struct field away. Whatever the spec's
 // stateless semantics settle into, this is the only line that changes.
