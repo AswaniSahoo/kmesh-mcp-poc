@@ -40,6 +40,10 @@ go run ./cmd/fixture # two-terminal mode: fixture daemon on :15200
 go run ./cmd/kmesh-mcp -daemon localhost:15200 -listen :8080
 ```
 
+The server probes the daemon once on startup and reports what it found:
+
+![kmesh-mcp starting up: the daemon at localhost:15200 resolves to dataplane mode dual-engine, and the server begins serving MCP 2026-07-28 on :8080/mcp with stateless=true](assets/server-startup.png)
+
 A [Makefile](Makefile) wraps these as `make run` / `make test` / `make check` / `make serve`.
 The `go` commands above are the verified path — `make` was not available on the machine this
 was built on, so the Makefile itself is untested.
@@ -60,6 +64,17 @@ variations of the same one.
 Route names, response shapes and error behaviour were read from `kmesh-net/kmesh` at commit
 `c88ef300`, `pkg/status/status_server.go`. The listen address `:15200` is kmesh's own
 `adminAddr` (`status_server.go:48`), not an invented port.
+
+The three tools as an MCP client sees them, listed in deterministic order, each marked
+read-only. The `mode` field renders as a picker rather than a free-text box because the
+enum reaches the client in the tool's input schema:
+
+![MCP Inspector connected to kmesh-mcp, listing kmesh_config_dump, kmesh_get_loggers and kmesh_version. The config dump tool is selected, marked READ-ONLY, and its mode field is a dropdown set to dual-engine](assets/inspector-tools.png)
+
+**One honest note about that screenshot.** MCP Inspector v2.1.0 connects using the legacy
+`initialize` handshake, and this server accepts it and negotiates down to `2025-06-18` —
+the backward compatibility the SDK documents. So the picture shows the tools working, not
+the 2026-07-28 path. That path is exercised by `cmd/demo` and the test suite below.
 
 ---
 
@@ -128,6 +143,15 @@ pass it and the argument wins. Here is that call with no arguments at all:
   }
 }
 ```
+
+The same exchange as it actually runs. The request carries `"arguments": {}` and nothing
+else:
+
+![Terminal output of go run ./cmd/demo showing the tools/call request for kmesh_config_dump with an empty arguments object and no mode field](assets/demo-config-dump-request.png)
+
+and the response ends on the mode the server resolved for itself:
+
+![The tail of the same response, showing mode dual-engine, modeSource startup-probe, and resultType complete](assets/demo-config-dump-response.png)
 
 `modeSource` is reported so a caller can tell whether it got the mode it asked for or the
 one the server resolved for it. Full untruncated response: [docs/demo-output.txt](docs/demo-output.txt).
@@ -282,6 +306,8 @@ $ go test ./... -v
 --- PASS: TestStatelessAdvertisedVersions (0.00s)
 PASS
 ```
+
+![go test ./... -v output: all fifteen tests passing, including the enum rejection message and the stateful-versus-stateless protocol comparison](assets/tests.png)
 
 15 tests. The coverage is of the MCP layer and the daemon client, not of kmesh.
 
