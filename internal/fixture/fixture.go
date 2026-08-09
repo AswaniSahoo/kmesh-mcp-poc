@@ -1,12 +1,22 @@
 // Package fixture stands up a stand-in for the kmesh daemon's admin server so
 // the MCP server can be run and tested with no cluster, no eBPF and no root.
 //
-// The payloads below are HAND-AUTHORED from the exported struct shapes read in
-// kmesh-net/kmesh at commit c88ef300. They are not captured from a live
-// daemon. Field names and the mode-mismatch behaviour are faithful to the
-// source; the values are invented. Anything that depends on the values being
-// real (data volumes, timing, protojson quirks in the kernel-native dump)
-// is not demonstrated by this package.
+// The payloads below are AUTHORED, not captured. What they are checked against
+// is the Go types the daemon actually marshals, read from kmesh-net/kmesh at
+// commit c88ef300: status.WorkloadDump, status.Workload, status.Service and
+// status.AuthorizationPolicy (pkg/status/api.go:32-91), including their json
+// tags, which fields carry omitempty, the enum String() casing, and the sort
+// applied before marshalling. So the SHAPE is faithful down to key names.
+//
+// The VALUES are invented. Nothing here was recorded from a running daemon, so
+// anything depending on real data (volumes, timing, protojson quirks in the
+// kernel-native dump, whether a real cluster ever produces this exact
+// combination of fields) is not demonstrated by this package.
+//
+// Importing kmesh's own handlers instead is not an option for a separate Go
+// module: pkg/status reaches pkg/bpf, which reaches bpf2go-generated packages
+// that //go:embed compiled eBPF .o files, and those are build artifacts
+// excluded by kmesh's .gitignore. Verified by trying it.
 package fixture
 
 import (
@@ -45,35 +55,64 @@ var LoggerLevels = map[string]string{
 	"bpf":        "error",
 }
 
-// workloadDump is the dual-engine payload, shaped like status.WorkloadDump
-// (pkg/status/status_server.go:466-470).
+// workloadDump is the dual-engine payload.
+//
+// Every field below is taken from the Go types the daemon actually marshals,
+// not guessed: status.WorkloadDump (pkg/status/status_server.go:466-470) over
+// status.Workload, status.Service and status.AuthorizationPolicy
+// (pkg/status/api.go:32-91). Four details are easy to get wrong and are
+// deliberately right here:
+//
+//   - a Service's addresses serialise under the key "vips", not "addresses"
+//     (api.go:79);
+//   - workloadType and status are enum String() values, so they are upper case:
+//     "POD" and "HEALTHY" (workload.pb.go:146-151, :98-101);
+//   - protocol, serviceAccount and status carry no omitempty, so a real daemon
+//     emits them even when empty, and locality and applicationTunnel are
+//     structs, where omitempty has no effect, so they appear as objects;
+//   - printWorkloadDump sorts workloads, services and policies by name before
+//     marshalling (status_server.go:566-575), so this payload is pre-sorted.
 const workloadDump = `{
   "workloads": [
     {
       "uid": "Kubernetes//Pod/default/productpage-v1-fixture",
+      "addresses": ["10.244.0.11"],
+      "protocol": "NONE",
       "name": "productpage-v1-fixture",
       "namespace": "default",
-      "addresses": ["10.244.0.11"],
-      "node": "kmesh-worker",
-      "network": "",
+      "serviceAccount": "bookinfo-productpage",
+      "workloadName": "productpage-v1",
+      "workloadType": "POD",
       "canonicalName": "productpage",
       "canonicalRevision": "v1",
-      "workloadType": "Pod",
-      "workloadName": "productpage-v1",
-      "clusterId": "Kubernetes"
+      "clusterId": "Kubernetes",
+      "locality": {},
+      "node": "kmesh-worker",
+      "network": "testnetwork",
+      "status": "HEALTHY",
+      "applicationTunnel": {"protocol": ""},
+      "services": ["default/productpage.default.svc.cluster.local"]
     },
     {
       "uid": "Kubernetes//Pod/default/reviews-v2-fixture",
+      "addresses": ["10.244.0.12"],
+      "waypoint": "testnetwork/192.168.1.10",
+      "protocol": "HBONE",
       "name": "reviews-v2-fixture",
       "namespace": "default",
-      "addresses": ["10.244.0.12"],
-      "node": "kmesh-worker",
-      "network": "",
+      "serviceAccount": "bookinfo-reviews",
+      "workloadName": "reviews-v2",
+      "workloadType": "POD",
       "canonicalName": "reviews",
       "canonicalRevision": "v2",
-      "workloadType": "Pod",
-      "workloadName": "reviews-v2",
-      "clusterId": "Kubernetes"
+      "clusterId": "Kubernetes",
+      "locality": {"region": "us-east-1", "zone": "us-east-1a"},
+      "node": "kmesh-worker",
+      "network": "testnetwork",
+      "status": "HEALTHY",
+      "applicationTunnel": {"protocol": ""},
+      "services": ["default/reviews.default.svc.cluster.local"],
+      "authorizationPolicies": ["default/allow-productpage"]
     }
   ],
   "services": [
@@ -81,16 +120,28 @@ const workloadDump = `{
       "name": "productpage",
       "namespace": "default",
       "hostname": "productpage.default.svc.cluster.local",
-      "addresses": ["10.96.0.21"],
-      "ports": [{"servicePort": 9080, "targetPort": 9080}]
+      "vips": ["10.96.0.21"],
+      "ports": [{"servicePort": 9080, "targetPort": 9080}],
+      "loadBalancer": null,
+      "waypoint": null
+    },
+    {
+      "name": "reviews",
+      "namespace": "default",
+      "hostname": "reviews.default.svc.cluster.local",
+      "vips": ["10.96.0.22"],
+      "ports": [{"servicePort": 9080, "targetPort": 9080}],
+      "loadBalancer": {"mode": "FAILOVER", "routingPreferences": ["NETWORK", "REGION"]},
+      "waypoint": {"destination": "testnetwork/192.168.1.10"}
     }
   ],
   "policies": [
     {
       "name": "allow-productpage",
       "namespace": "default",
+      "scope": "NAMESPACE",
       "action": "ALLOW",
-      "scope": "NAMESPACE"
+      "rules": []
     }
   ]
 }`

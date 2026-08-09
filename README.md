@@ -432,12 +432,32 @@ not coverage of kmesh.
 
 The point of this section is that the list above is short and this one is not.
 
-**The fixtures are hand-authored, not captured.** Payloads in
-[internal/fixture](internal/fixture) were written from the exported struct shapes read in
-kmesh's source. They are not a recording of a live daemon. Field names and the mode-mismatch
-behaviour are faithful, but **the values are invented and shape fidelity against a real
-daemon is unproven**. Anything depending on real data, such as volumes, protojson encoding
-quirks in the kernel-native dump, or timing, is not demonstrated here.
+**The fixtures are authored, not captured.** Payloads in
+[internal/fixture](internal/fixture) are checked field by field against the Go types the
+daemon actually marshals (`pkg/status/api.go:32-91`), including json tags, which fields
+carry `omitempty`, enum `String()` casing, and the sort applied before marshalling. Four
+things that are easy to get wrong are deliberately right: a Service's addresses serialise
+under `vips` rather than `addresses`; `workloadType` and `status` are upper case because
+they are enum names; `protocol`, `serviceAccount` and `status` appear even when empty
+because they carry no `omitempty`; and `locality` and `applicationTunnel` appear as objects
+because `omitempty` does nothing on a struct.
+
+So the **shape** is faithful down to key names. **The values are invented**, and nothing
+here was recorded from a running daemon, so anything depending on real data (volumes,
+timing, protojson quirks in the kernel-native dump, whether a real cluster ever produces
+this exact combination of fields) is not demonstrated.
+
+**Why not just import kmesh's own handlers instead of writing a fixture?** Because it does
+not compile outside kmesh's build. `pkg/status` reaches `pkg/bpf`, which reaches the
+bpf2go-generated packages, which `//go:embed` compiled eBPF object files. Those `.o` files
+are build artifacts excluded by kmesh's `.gitignore`, so an external Go module importing
+`kmesh.net/kmesh/pkg/status` fails with `pattern kmeshcgroupskb_bpfel.o: no matching files
+found`, and `pkg/cache/v2/maps` is excluded by build constraints on top of that. Verified by
+trying it. The consequence is worth stating plainly: **even the handlers that touch no eBPF
+at all, such as `/version` and `/debug/loggers`, cannot be imported or exercised by anything
+outside the kmesh build.** An MCP server living inside the kmesh tree inherits that build
+and could call them directly; a separate module cannot. That is one concrete reason the
+process-model question matters.
 
 **No eBPF, and therefore no `get_bpf_maps`.** kmesh's `/debug/config_dump/bpf/*` routes read
 live eBPF maps through `BackendLookupAll`, `EndpointLookupAll`, `FrontendLookupAll`,
