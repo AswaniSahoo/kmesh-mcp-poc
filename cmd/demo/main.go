@@ -22,13 +22,17 @@ import (
 	"github.com/AswaniSahoo/kmesh-mcp-poc/internal/fixture"
 	"github.com/AswaniSahoo/kmesh-mcp-poc/internal/kmeshapi"
 	"github.com/AswaniSahoo/kmesh-mcp-poc/internal/mcpserver"
+	"github.com/AswaniSahoo/kmesh-mcp-poc/internal/tracectx"
 )
 
 func main() {
 	log.SetFlags(0)
 
-	// A fixture daemon in dual-engine mode.
-	daemon := httptest.NewServer(fixture.New(kmeshapi.ModeDualEngine))
+	// A fixture daemon in dual-engine mode. The recorder captures the W3C
+	// trace headers the daemon receives, so section 11 can show that trace
+	// context really crossed the hop rather than claiming it did.
+	daemonHandler, rec := fixture.NewRecording(kmeshapi.ModeDualEngine)
+	daemon := httptest.NewServer(daemonHandler)
 	defer daemon.Close()
 
 	client := kmeshapi.NewClient(strings.TrimPrefix(daemon.URL, "http://"))
@@ -125,7 +129,30 @@ func main() {
 	fmt.Printf("GET /mcp\nAccept: text/event-stream\n\n<- %s\n%s\n",
 		resp.Status, strings.TrimSpace(string(body)))
 
-	section("11. The same server with Stateless: false, for comparison")
+	section("11. Trace context crossing from MCP into the mesh (SEP-414)")
+	fmt.Println("// The 2026-07-28 revision reserves traceparent/tracestate/baggage in _meta")
+	fmt.Println("// for OpenTelemetry trace context, as an explicit exception to the")
+	fmt.Println("// io.modelcontextprotocol/ prefix rule. For a service mesh that is not a")
+	fmt.Println("// footnote: unless the trace survives the hop into the daemon, the agent's")
+	fmt.Println("// view of a call and the mesh's view of the same call are two unrelated")
+	fmt.Println("// traces. Below, the same trace id comes out the other side with a new")
+	fmt.Println("// span id, so the daemon call is a child of the tool call.")
+	const traceparentIn = "00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01"
+	exchangeMeta(mcpSrv.URL, 11, "tools/call", map[string]any{
+		"name": "kmesh_config_dump", "arguments": map[string]any{},
+	}, map[string]any{
+		tracectx.KeyTraceparent: traceparentIn,
+		tracectx.KeyTracestate:  "kmesh=abc",
+		tracectx.KeyBaggage:     "userId=42",
+	})
+	fmt.Printf("\n// what the kmesh daemon actually received on its own HTTP request:\n")
+	seen := rec.Last()
+	fmt.Printf("   in  (MCP _meta)      traceparent: %s\n", traceparentIn)
+	fmt.Printf("   out (daemon header)  traceparent: %s\n", seen[tracectx.HeaderTraceparent])
+	fmt.Printf("   out (daemon header)  tracestate:  %s\n", seen[tracectx.HeaderTracestate])
+	fmt.Printf("   out (daemon header)  baggage:     %s\n", seen[tracectx.HeaderBaggage])
+
+	section("12. The same server with Stateless: false, for comparison")
 	statefulSrv := httptest.NewServer(mcpserver.NewHandler(srv, mcpserver.HandlerOptions{
 		Stateless:    false,
 		JSONResponse: true,
@@ -153,19 +180,33 @@ const MetaClientCapabilities = "io.modelcontextprotocol/clientCapabilities"
 
 // exchange sends one JSON-RPC request at the current protocol revision.
 func exchange(endpoint string, id int, method string, params map[string]any) {
-	exchangeAt(endpoint, id, method, params, mcpserver.ProtocolRevision)
+	exchangeFull(endpoint, id, method, params, mcpserver.ProtocolRevision, nil)
 }
 
-// exchangeAt sends one JSON-RPC request declaring the given protocol revision,
-// and prints both sides of the wire.
+// exchangeAt sends one JSON-RPC request declaring the given protocol revision.
 func exchangeAt(endpoint string, id int, method string, params map[string]any, version string) {
+	exchangeFull(endpoint, id, method, params, version, nil)
+}
+
+// exchangeMeta sends one request with extra _meta keys merged in, which is how
+// trace context travels (SEP-414).
+func exchangeMeta(endpoint string, id int, method string, params, extraMeta map[string]any) {
+	exchangeFull(endpoint, id, method, params, mcpserver.ProtocolRevision, extraMeta)
+}
+
+// exchangeFull sends one JSON-RPC request and prints both sides of the wire.
+func exchangeFull(endpoint string, id int, method string, params map[string]any, version string, extraMeta map[string]any) {
 	if params == nil {
 		params = map[string]any{}
 	}
-	params["_meta"] = map[string]any{
+	meta := map[string]any{
 		MetaProtocolVersion:    version,
 		MetaClientCapabilities: map[string]any{},
 	}
+	for k, v := range extraMeta {
+		meta[k] = v
+	}
+	params["_meta"] = meta
 
 	reqBody := map[string]any{
 		"jsonrpc": "2.0",

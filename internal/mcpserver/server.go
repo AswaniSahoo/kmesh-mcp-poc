@@ -12,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/AswaniSahoo/kmesh-mcp-poc/internal/kmeshapi"
+	"github.com/AswaniSahoo/kmesh-mcp-poc/internal/tracectx"
 )
 
 // ProtocolRevision is the MCP revision this server is built against. It is
@@ -169,8 +170,33 @@ func New(cfg Config) (*mcp.Server, error) {
 	return srv, nil
 }
 
+// withTrace lifts W3C trace context out of the request's _meta and onto the
+// context, so the daemon client continues the same trace on its own hop.
+//
+// Protocol revision 2026-07-28 reserves traceparent/tracestate/baggage in
+// _meta for exactly this (SEP-414). A missing traceparent simply means the
+// request is not traced. A malformed one is treated the same way on purpose:
+// W3C Trace Context says a receiver that cannot parse traceparent should
+// restart the trace rather than propagate something invalid, so the tool call
+// still succeeds and the daemon hop goes out untraced.
+func withTrace(ctx context.Context, req *mcp.CallToolRequest) context.Context {
+	if req == nil || req.Params == nil {
+		return ctx
+	}
+	tc, err := tracectx.FromMeta(req.Params.Meta)
+	if err != nil {
+		return ctx
+	}
+	child, err := tc.Child(nil)
+	if err != nil {
+		return ctx
+	}
+	return tracectx.NewContext(ctx, child)
+}
+
 func handleVersion(cfg Config) mcp.ToolHandlerFor[VersionArgs, VersionResult] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, _ VersionArgs) (*mcp.CallToolResult, VersionResult, error) {
+	return func(ctx context.Context, req *mcp.CallToolRequest, _ VersionArgs) (*mcp.CallToolResult, VersionResult, error) {
+		ctx = withTrace(ctx, req)
 		info, err := cfg.Client.Version(ctx)
 		if err != nil {
 			return nil, VersionResult{}, err
@@ -180,7 +206,8 @@ func handleVersion(cfg Config) mcp.ToolHandlerFor[VersionArgs, VersionResult] {
 }
 
 func handleConfigDump(cfg Config) mcp.ToolHandlerFor[ConfigDumpArgs, ConfigDumpResult] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, args ConfigDumpArgs) (*mcp.CallToolResult, ConfigDumpResult, error) {
+	return func(ctx context.Context, req *mcp.CallToolRequest, args ConfigDumpArgs) (*mcp.CallToolResult, ConfigDumpResult, error) {
+		ctx = withTrace(ctx, req)
 		mode, source := cfg.ResolvedMode, ModeSourceStartup
 		if args.Mode != "" {
 			mode, source = kmeshapi.Mode(args.Mode), ModeSourceArgument
@@ -202,7 +229,8 @@ func handleConfigDump(cfg Config) mcp.ToolHandlerFor[ConfigDumpArgs, ConfigDumpR
 }
 
 func handleGetLoggers(cfg Config) mcp.ToolHandlerFor[GetLoggersArgs, LoggersResult] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, args GetLoggersArgs) (*mcp.CallToolResult, LoggersResult, error) {
+	return func(ctx context.Context, req *mcp.CallToolRequest, args GetLoggersArgs) (*mcp.CallToolResult, LoggersResult, error) {
+		ctx = withTrace(ctx, req)
 		if args.Name == "" {
 			names, err := cfg.Client.LoggerNames(ctx)
 			if err != nil {

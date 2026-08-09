@@ -16,6 +16,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/AswaniSahoo/kmesh-mcp-poc/internal/tracectx"
 )
 
 // DefaultAddr is the kmesh daemon admin address. It matches adminAddr in
@@ -116,6 +118,15 @@ func (c *Client) get(ctx context.Context, path string) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
 		return nil, 0, err
+	}
+	// If the caller's MCP request carried W3C trace context, continue it on
+	// the hop into the daemon. Same trace, new span. This is the point at
+	// which an agent's tool call and the mesh's own view of that call become
+	// the same trace rather than two unrelated ones.
+	if tc := tracectx.FromContext(ctx); tc != nil {
+		for k, v := range tc.Headers() {
+			req.Header.Set(k, v)
+		}
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {

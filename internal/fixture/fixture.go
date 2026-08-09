@@ -14,8 +14,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 
 	"github.com/AswaniSahoo/kmesh-mcp-poc/internal/kmeshapi"
+	"github.com/AswaniSahoo/kmesh-mcp-poc/internal/tracectx"
 )
 
 // Version is the fixture's /version payload, shaped like kmesh's version.Info.
@@ -132,12 +134,50 @@ const adsDump = `{
   }
 }`
 
+// Recorder captures the W3C trace headers the fixture daemon received on its
+// most recent request. The real kmesh daemon does not do this; it exists so a
+// test can assert that trace context actually crossed the hop from MCP into
+// the daemon call, rather than assuming it did.
+type Recorder struct {
+	mu   sync.Mutex
+	last map[string]string
+}
+
+// Last returns the trace headers seen on the most recent request.
+func (r *Recorder) Last() map[string]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[string]string, len(r.last))
+	for k, v := range r.last {
+		out[k] = v
+	}
+	return out
+}
+
+func (r *Recorder) record(req *http.Request) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.last = map[string]string{}
+	for _, h := range []string{tracectx.HeaderTraceparent, tracectx.HeaderTracestate, tracectx.HeaderBaggage} {
+		if v := req.Header.Get(h); v != "" {
+			r.last[h] = v
+		}
+	}
+}
+
 // New returns a handler serving the kmesh admin routes this PoC uses, acting
 // as a daemon running in the given mode.
 //
 // The config dump route for the other mode answers HTTP 400 with kmesh's exact
 // invalidModeErrMessage body, which is what makes Client.ResolveMode work.
 func New(mode kmeshapi.Mode) http.Handler {
+	h, _ := NewRecording(mode)
+	return h
+}
+
+// NewRecording is New plus a Recorder over the trace headers received.
+func NewRecording(mode kmeshapi.Mode) (http.Handler, *Recorder) {
+	rec := &Recorder{}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc(kmeshapi.RouteVersion, func(w http.ResponseWriter, r *http.Request) {
@@ -187,7 +227,12 @@ func New(mode kmeshapi.Mode) http.Handler {
 		_, _ = w.Write(data)
 	})
 
-	return mux
+	// One middleware over every route, so the recorder sees trace headers
+	// regardless of which endpoint was hit.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec.record(r)
+		mux.ServeHTTP(w, r)
+	}), rec
 }
 
 // NewTestServer starts a fixture daemon on an ephemeral port and returns it.
