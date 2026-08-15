@@ -64,7 +64,15 @@ var LoggerLevels = map[string]string{
 // deliberately right here:
 //
 //   - a Service's addresses serialise under the key "vips", not "addresses"
-//     (api.go:79);
+//     (api.go:79), and each entry is "<network>/<ip>", not a bare IP, because
+//     ConvertService joins them (api.go:152) while ConvertWorkload does not
+//     (api.go:103);
+//   - a Service with NO waypoint still emits {"destination": ""} rather than
+//     null, because ConvertService allocates the struct unconditionally
+//     (api.go:167) while guarding LoadBalancer three lines below. Both of the
+//     above were found by writing this fixture and checking it against the
+//     source; the waypoint one is filed upstream as a fix. Update this payload
+//     to null if that lands;
 //   - workloadType and status are enum String() values, so they are upper case:
 //     "POD" and "HEALTHY" (workload.pb.go:146-151, :98-101);
 //   - protocol, serviceAccount and status carry no omitempty, so a real daemon
@@ -120,16 +128,16 @@ const workloadDump = `{
       "name": "productpage",
       "namespace": "default",
       "hostname": "productpage.default.svc.cluster.local",
-      "vips": ["10.96.0.21"],
+      "vips": ["testnetwork/10.96.0.21"],
       "ports": [{"servicePort": 9080, "targetPort": 9080}],
       "loadBalancer": null,
-      "waypoint": null
+      "waypoint": {"destination": ""}
     },
     {
       "name": "reviews",
       "namespace": "default",
       "hostname": "reviews.default.svc.cluster.local",
-      "vips": ["10.96.0.22"],
+      "vips": ["testnetwork/10.96.0.22"],
       "ports": [{"servicePort": 9080, "targetPort": 9080}],
       "loadBalancer": {"mode": "FAILOVER", "routingPreferences": ["NETWORK", "REGION"]},
       "waypoint": {"destination": "testnetwork/192.168.1.10"}
