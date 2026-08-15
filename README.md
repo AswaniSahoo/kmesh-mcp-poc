@@ -132,6 +132,27 @@ reaches the client in the tool's input schema.
 > which is the backward compatibility the SDK documents. So the picture shows the tools
 > working, not the 2026-07-28 path. That path is exercised by `cmd/demo` and the tests.
 
+### A current client, on the current revision
+
+Both negotiation paths are worth separating, because a client that speaks `2026-07-28`
+natively never sends `initialize` at all. SEP-2575 removed it.
+
+Registered with `claude mcp add --transport http kmesh http://localhost:8080/mcp`, Claude
+Code v2.1.228 reports:
+
+```
+Status:    connected          Protocol:  2026-07-28
+Auth:      authenticated      Tools:     3 tools
+```
+
+All three tools are discovered and their read-only annotations render in the client. Asked
+in plain English which version the daemon was running, it invoked `kmesh_version` and
+answered from the response: `v1.2.0-fixture`, commit `c88ef300`, built 2026-08-02, go1.25.0,
+linux/amd64, and it read the `fixture` build tag as a test instance rather than a release.
+
+So the server serves the current revision to a current client and still degrades correctly
+for an older one. Cursor and Copilot are untested, and this README does not claim them.
+
 ---
 
 ## The mode question, answered from kmesh's source
@@ -431,6 +452,14 @@ not coverage of kmesh.
 ## What this does not cover
 
 The point of this section is that the list above is short and this one is not.
+
+**List results do not carry `ttlMs` or `cacheScope`.** SEP-2549 defines `CacheableResult`
+in the `2026-07-28` schema, and `ttlMs` and `cacheScope` are non-optional on it, so
+`tools/list`, `server/discover` and the resource reads all inherit them. This server emits
+neither. The SDK has the type at `mcp.Cacheable`, so the gap is mine and not the SDK's. It
+matters more here than it looks: a kmesh config dump is large and slow moving, so the TTL
+is the difference between an agent re-dumping on every question and caching it, and picking
+that number per tool is a design decision rather than boilerplate.
 
 **The fixtures are authored, not captured.** Payloads in
 [internal/fixture](internal/fixture) are checked field by field against the Go types the
