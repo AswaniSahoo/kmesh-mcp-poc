@@ -34,6 +34,7 @@ longer than everything above it.
 - [Statelessness is one struct field](#statelessness-is-one-struct-field)
 - [Go version](#go-version)
 - [Tests](#tests)
+- [Against a real cluster](#against-a-real-cluster)
 - [What this does not cover](#what-this-does-not-cover)
 
 ---
@@ -449,6 +450,103 @@ not coverage of kmesh.
 
 ---
 
+## Against a real cluster
+
+Everything above runs on [internal/fixture](internal/fixture) with no cluster. This is the
+other half of that claim.
+
+[`.github/workflows/live-cluster.yml`](.github/workflows/live-cluster.yml) stands up kind,
+istio in ambient mode and a real `kmesh-daemon`, then points this server at it instead of at
+the fixture. Versions match kmesh's own `test/e2e/run_test.sh`, including the node image
+digest, and the helm chart is kmesh's rather than a copy.
+
+Nothing about the server changes between the two. `cmd/kmesh-mcp` already takes `-daemon`,
+so a port-forward of the DaemonSet pod's `localhost:15200` is the entire difference. The
+fixture stands in for the daemon; it is not a mode of the server.
+
+The live tests are in [internal/mcpserver/live_test.go](internal/mcpserver/live_test.go)
+behind a `live` build tag and skip unless `KMESH_DAEMON_ADDR` is set, so `go test ./...` is
+unchanged and still needs nothing.
+
+```
+go test -tags live ./internal/mcpserver/ -run TestLive -v
+```
+
+### What a live daemon confirmed
+
+Runner kernel `6.17.0-1022-azure`, kmesh `ghcr.io/kmesh-net/kmesh:latest`, dual-engine, two
+nodes, both pods `1/1 Running`.
+
+**The startup mode probe holds against real kmesh.** Exactly one config dump route answered:
+
+```
+GET /debug/config_dump/kernel-native -> 400 (21 bytes)
+GET /debug/config_dump/dual-engine   -> 200 (13519 bytes)
+```
+
+Those 21 bytes are `"	Invalid Client Mode
+"` byte for byte, which is what
+`kmeshapi.InvalidModeMessage` claims and what `checkAdsMode` at
+`pkg/status/status_server.go:131-149` produces.
+
+**The daemon's own `/version`**, reached through a full `tools/call` over stateless
+Streamable HTTP:
+
+```json
+{
+  "gitVersion":   "1.1-dev",
+  "gitCommit":    "ec501a9887b53899ba2760f69740d3d78434d7c8",
+  "gitTreeState": "clean",
+  "buildDate":    "2026-08-20T12:03:37Z",
+  "goVersion":    "go1.24.2",
+  "compiler":     "gc",
+  "platform":     "linux/amd64"
+}
+```
+
+Field for field what the fixture declares. Incidentally `goVersion` is `go1.24.2`, which is
+the directive this module cannot use; see [Go version](#go-version).
+
+**A call carrying no arguments at all** was answered from the startup probe
+(`modeSource: "startup-probe"`), and asking the same daemon for the other mode was refused
+with the daemon's own 400 surfaced as a tool error.
+
+### What it caught
+
+Two things, both mine, neither findable without a real daemon.
+
+**The fixture's logger names were guessed and wrong.** It listed
+`default, controller, ads, workload, bpf`. The daemon serves `default, fileOnly, bpf`:
+`loggerMap` at `pkg/logger/logger.go:54-57` holds exactly `default` and `fileOnly`, and
+`getLoggerNames` at `pkg/status/status_server.go:359-360` appends `bpf`. Now corrected.
+Note that `GetLoggerNames` ranges over a map, so the two real names arrive in
+non-deterministic order; only the trailing `bpf` has a fixed position.
+
+**The committed demo transcript was stale.** `docs/demo-output.txt` still showed
+`"vips": ["10.96.0.21"]` and `"waypoint": null`, from before the fixture was corrected to
+match `ConvertService`. It has been regenerated from a real run.
+
+### Live confirmation of the upstream bug
+
+A real cluster reproduces [kmesh-net/kmesh#1915](https://github.com/kmesh-net/kmesh/pull/1915)
+on every service it has. Three services, none configured with a waypoint or a load balancer:
+
+```
+istio-system/istiod     waypoint = {"destination": ""}   loadBalancer = null
+kube-system/kube-dns    waypoint = {"destination": ""}   loadBalancer = null
+default/kubernetes      waypoint = {"destination": ""}   loadBalancer = null
+```
+
+`ConvertService` allocates the `Waypoint` struct unconditionally while guarding
+`LoadBalancer` three lines below, so a client cannot distinguish "no waypoint" from "a
+waypoint whose destination is empty" without special-casing the empty string. That was
+found by reading the types; this is the same thing observed on a running daemon.
+
+The full captured JSON, the daemon log and the pod state are uploaded as the `live-capture`
+artifact on every run.
+
+---
+
 ## What this does not cover
 
 The point of this section is that the list above is short and this one is not.
@@ -471,10 +569,13 @@ they are enum names; `protocol`, `serviceAccount` and `status` appear even when 
 because they carry no `omitempty`; and `locality` and `applicationTunnel` appear as objects
 because `omitempty` does nothing on a struct.
 
-So the **shape** is faithful down to key names. **The values are invented**, and nothing
-here was recorded from a running daemon, so anything depending on real data (volumes,
-timing, protojson quirks in the kernel-native dump, whether a real cluster ever produces
-this exact combination of fields) is not demonstrated.
+So the **shape** is faithful down to key names and **the values are invented**. The shape is
+no longer only an argument: [Against a real cluster](#against-a-real-cluster) checks it
+against a live daemon, which confirmed the `/version` field set and the dual-engine dump's
+`policies`/`services`/`workloads` structure, and caught the logger names, which had been
+guessed. What is still not demonstrated is anything depending on real data at scale:
+volumes, timing, protojson quirks in the kernel-native dump, and the kernel-native path
+generally, since the live run deploys dual-engine.
 
 **Why not just import kmesh's own handlers instead of writing a fixture?** Because it does
 not compile outside kmesh's build. `pkg/status` reaches `pkg/bpf`, which reaches the
