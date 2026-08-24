@@ -452,178 +452,93 @@ not coverage of kmesh.
 
 ## Against a real cluster
 
-Everything above runs on [internal/fixture](internal/fixture) with no cluster. This is the
-other half of that claim.
-
-[`.github/workflows/live-cluster.yml`](.github/workflows/live-cluster.yml) stands up kind,
-istio in ambient mode and a real `kmesh-daemon`, then points this server at it instead of at
-the fixture. Versions match kmesh's own `test/e2e/run_test.sh`, including the node image
-digest, and the helm chart is kmesh's rather than a copy.
+Everything above runs on [internal/fixture](internal/fixture) with no cluster.
+[`.github/workflows/live-cluster.yml`](.github/workflows/live-cluster.yml) is the other half:
+kind, istio in ambient mode and a real `kmesh-daemon`, with this server pointed at it.
+Versions match kmesh's own `test/e2e/run_test.sh`, and the helm chart is theirs.
 
 Nothing about the server changes between the two. `cmd/kmesh-mcp` already takes `-daemon`,
-so a port-forward of the DaemonSet pod's `localhost:15200` is the entire difference. The
-fixture stands in for the daemon; it is not a mode of the server.
+so a port-forward of the pod's `localhost:15200` is the whole difference.
 
-The live tests are in [internal/mcpserver/live_test.go](internal/mcpserver/live_test.go)
-behind a `live` build tag and skip unless `KMESH_DAEMON_ADDR` is set, so `go test ./...` is
-unchanged and still needs nothing.
+The live tests are in [live_test.go](internal/mcpserver/live_test.go) behind a `live` build
+tag and skip unless `KMESH_DAEMON_ADDR` is set, so `go test ./...` is unchanged.
 
 ```
 go test -tags live ./internal/mcpserver/ -run TestLive -v
 ```
 
-### What a live daemon confirmed
-
-Runner kernel `6.17.0-1022-azure`, kmesh `ghcr.io/kmesh-net/kmesh:latest`, dual-engine, two
-nodes, both pods `1/1 Running`.
-
-**The startup mode probe holds against real kmesh.** Exactly one config dump route answered:
+**What it confirmed.** The startup mode probe behaves against real kmesh as it does against
+the fixture:
 
 ```
-GET /debug/config_dump/kernel-native -> 400 (21 bytes)
+GET /debug/config_dump/kernel-native -> 400 (21 bytes, "	Invalid Client Mode
+")
 GET /debug/config_dump/dual-engine   -> 200 (13519 bytes)
 ```
 
-Those 21 bytes are `"	Invalid Client Mode
-"` byte for byte, which is what
-`kmeshapi.InvalidModeMessage` claims and what `checkAdsMode` at
-`pkg/status/status_server.go:131-149` produces.
+`/version` matched the fixture field for field, a call with no arguments was answered from
+the startup probe, and the wrong mode was refused with the daemon's own 400.
 
-**The daemon's own `/version`**, reached through a full `tools/call` over stateless
-Streamable HTTP:
+**What it caught**, both mine:
 
-```json
-{
-  "gitVersion":   "1.1-dev",
-  "gitCommit":    "ec501a9887b53899ba2760f69740d3d78434d7c8",
-  "gitTreeState": "clean",
-  "buildDate":    "2026-08-20T12:03:37Z",
-  "goVersion":    "go1.24.2",
-  "compiler":     "gc",
-  "platform":     "linux/amd64"
-}
-```
+- The fixture's logger names were guessed. It listed `default, controller, ads, workload,
+  bpf`; the daemon serves `default, fileOnly, bpf` (`pkg/logger/logger.go:54-57`, plus `bpf`
+  appended at `status_server.go:359-360`).
+- The committed demo transcript was stale, still showing `"waypoint": null` from before the
+  fixture was corrected.
 
-Field for field what the fixture declares. Incidentally `goVersion` is `go1.24.2`, which is
-the directive this module cannot use; see [Go version](#go-version).
-
-**A call carrying no arguments at all** was answered from the startup probe
-(`modeSource: "startup-probe"`), and asking the same daemon for the other mode was refused
-with the daemon's own 400 surfaced as a tool error.
-
-### What it caught
-
-Two things, both mine, neither findable without a real daemon.
-
-**The fixture's logger names were guessed and wrong.** It listed
-`default, controller, ads, workload, bpf`. The daemon serves `default, fileOnly, bpf`:
-`loggerMap` at `pkg/logger/logger.go:54-57` holds exactly `default` and `fileOnly`, and
-`getLoggerNames` at `pkg/status/status_server.go:359-360` appends `bpf`. Now corrected.
-Note that `GetLoggerNames` ranges over a map, so the two real names arrive in
-non-deterministic order; only the trailing `bpf` has a fixed position.
-
-**The committed demo transcript was stale.** `docs/demo-output.txt` still showed
-`"vips": ["10.96.0.21"]` and `"waypoint": null`, from before the fixture was corrected to
-match `ConvertService`. It has been regenerated from a real run.
-
-### Live confirmation of the upstream bug
-
-A real cluster reproduces [kmesh-net/kmesh#1915](https://github.com/kmesh-net/kmesh/pull/1915)
-on every service it has. Three services, none configured with a waypoint or a load balancer:
+**It also reproduces [#1915](https://github.com/kmesh-net/kmesh/pull/1915).** Three services,
+none configured with a waypoint or load balancer:
 
 ```
-istio-system/istiod     waypoint = {"destination": ""}   loadBalancer = null
-kube-system/kube-dns    waypoint = {"destination": ""}   loadBalancer = null
-default/kubernetes      waypoint = {"destination": ""}   loadBalancer = null
+istio-system/istiod    "waypoint": {"destination": ""}   "loadBalancer": null
+kube-system/kube-dns   "waypoint": {"destination": ""}   "loadBalancer": null
+default/kubernetes     "waypoint": {"destination": ""}   "loadBalancer": null
 ```
 
-`ConvertService` allocates the `Waypoint` struct unconditionally while guarding
-`LoadBalancer` three lines below, so a client cannot distinguish "no waypoint" from "a
-waypoint whose destination is empty" without special-casing the empty string. That was
-found by reading the types; this is the same thing observed on a running daemon.
+That was found by reading `ConvertService`. This is the same thing on a running daemon.
 
-The full captured JSON, the daemon log and the pod state are uploaded as the `live-capture`
-artifact on every run.
+Captured JSON and daemon logs upload as the `live-capture` artifact on every run.
 
 ---
 
 ## What this does not cover
 
-The point of this section is that the list above is short and this one is not.
+**`ttlMs` and `cacheScope` are missing from list results.** SEP-2549 makes them
+non-optional on `CacheableResult`, which `tools/list` and `server/discover` inherit. The SDK
+has the type at `mcp.Cacheable`, so the gap is mine rather than the SDK's.
 
-**List results do not carry `ttlMs` or `cacheScope`.** SEP-2549 defines `CacheableResult`
-in the `2026-07-28` schema, and `ttlMs` and `cacheScope` are non-optional on it, so
-`tools/list`, `server/discover` and the resource reads all inherit them. This server emits
-neither. The SDK has the type at `mcp.Cacheable`, so the gap is mine and not the SDK's. It
-matters more here than it looks: a kmesh config dump is large and slow moving, so the TTL
-is the difference between an agent re-dumping on every question and caching it, and picking
-that number per tool is a design decision rather than boilerplate.
+**Fixture values are invented.** The shape is checked field by field against the types the
+daemon marshals (`pkg/status/api.go:32-91`) and now against a live daemon
+([above](#against-a-real-cluster)). The values are not real, and the kernel-native path is
+untested because the live run deploys dual-engine.
 
-**The fixtures are authored, not captured.** Payloads in
-[internal/fixture](internal/fixture) are checked field by field against the Go types the
-daemon actually marshals (`pkg/status/api.go:32-91`), including json tags, which fields
-carry `omitempty`, enum `String()` casing, and the sort applied before marshalling. Four
-things that are easy to get wrong are deliberately right: a Service's addresses serialise
-under `vips` rather than `addresses`; `workloadType` and `status` are upper case because
-they are enum names; `protocol`, `serviceAccount` and `status` appear even when empty
-because they carry no `omitempty`; and `locality` and `applicationTunnel` appear as objects
-because `omitempty` does nothing on a struct.
+**kmesh's own handlers cannot be imported.** `pkg/status` reaches `pkg/bpf`, which
+`//go:embed`s compiled eBPF `.o` files that are gitignored build artifacts. Even `/version`
+and `/debug/loggers`, which touch no eBPF, are unreachable from outside the kmesh build.
+Verified by trying it, and one concrete reason the process-model question matters.
 
-So the **shape** is faithful down to key names and **the values are invented**. The shape is
-no longer only an argument: [Against a real cluster](#against-a-real-cluster) checks it
-against a live daemon, which confirmed the `/version` field set and the dual-engine dump's
-`policies`/`services`/`workloads` structure, and caught the logger names, which had been
-guessed. What is still not demonstrated is anything depending on real data at scale:
-volumes, timing, protojson quirks in the kernel-native dump, and the kernel-native path
-generally, since the live run deploys dual-engine.
+**No eBPF map reads.** `/debug/config_dump/bpf/*` needs a loaded datapath, so those routes
+are absent and so is `get_bpf_maps`.
 
-**Why not just import kmesh's own handlers instead of writing a fixture?** Because it does
-not compile outside kmesh's build. `pkg/status` reaches `pkg/bpf`, which reaches the
-bpf2go-generated packages, which `//go:embed` compiled eBPF object files. Those `.o` files
-are build artifacts excluded by kmesh's `.gitignore`, so an external Go module importing
-`kmesh.net/kmesh/pkg/status` fails with `pattern kmeshcgroupskb_bpfel.o: no matching files
-found`, and `pkg/cache/v2/maps` is excluded by build constraints on top of that. Verified by
-trying it. The consequence is worth stating plainly: **even the handlers that touch no eBPF
-at all, such as `/version` and `/debug/loggers`, cannot be imported or exercised by anything
-outside the kmesh build.** An MCP server living inside the kmesh tree inherits that build
-and could call them directly; a separate module cannot. That is one concrete reason the
-process-model question matters.
+**No waypoint tools.** They need the Gateway API CRDs and a live Kubernetes API.
 
-**No eBPF, and therefore no `get_bpf_maps`.** kmesh's `/debug/config_dump/bpf/*` routes read
-live eBPF maps through `BackendLookupAll`, `EndpointLookupAll`, `FrontendLookupAll`,
-`ServiceLookupAll`, `WorkloadPolicyLookupAll`, `ClusterLookupAll`, `ListenerLookupAll` and
-`RouteConfigLookupAll`. No fixture substitutes for a loaded datapath, so those routes are
-deliberately absent.
+**Auth is a seam, not an implementation.** The bearer middleware really is in the request
+path, which `TestBearerAuthRejectsBadToken` proves, but the verifier compares a fixed
+string. A real deployment swaps [internal/tokenauth](internal/tokenauth) for a Kubernetes
+TokenReview and changes nothing else. mTLS is not addressed.
 
-**No waypoint tools.** They need a live Kubernetes API with Gateway API CRDs installed.
-`waypoint generate` is pure templating and would have been cheap, but it is excluded to keep
-the boundary of this PoC unambiguous.
+**Trace context is propagated, not produced.** [internal/tracectx](internal/tracectx)
+continues W3C context onto the daemon call. It emits no OpenTelemetry spans and there is no
+OTel dependency here. Whether kmesh does anything with a `traceparent` today is untested.
 
-**Authentication is a seam, not an implementation.** The SDK's bearer middleware really is
-in the request path and really does reject bad tokens, which
-`TestBearerAuthRejectsBadToken` proves. The verifier behind it compares against a fixed
-string. A real deployment replaces [internal/tokenauth](internal/tokenauth) with a
-Kubernetes TokenReview call and changes nothing else. **mTLS is not addressed at all.**
+**Read-only.** Every tool is a GET. No `log set`, no authz or monitoring toggles.
 
-**Trace context is propagated, not produced.** [internal/tracectx](internal/tracectx) parses
-W3C trace context out of `_meta` and continues it as headers on the daemon call. It does
-**not** emit OpenTelemetry spans, register a `TracerProvider`, or export anything to a
-collector, and there is no OTel SDK dependency here at all. A real deployment would add one.
-What is proven is that the context survives the hop, not that anything is recorded. The
-kmesh side is unproven too: whether the daemon does anything useful with a `traceparent`
-header today was not tested, because that needs a live daemon.
+**Three tools, not ten.** #1800 lists ten core and five stretch tools. Nothing here says the
+other seven are easy.
 
-**Read-only.** No `log set`, no `authz enable/disable`, no monitoring toggles. Every tool is
-a GET.
-
-**Not built inside kmesh.** No `go build` or `go get` was run against the kmesh tree, so
-whether this SDK coexists cleanly with kmesh's dependency graph (`cilium/ebpf`,
-`envoyproxy/go-control-plane`) is **untested**. See [Go version](#go-version).
-
-**Three tools, not ten.** #1800 lists ten core tools and five stretch tools. This covers
-three, chosen for schema variety. Nothing here says the other seven are easy.
-
-**No kmesh CI, no e2e, no container image, no `kmeshctl mcp serve`.**
+**Not built inside kmesh**, so coexistence with kmesh's dependency graph is untested; see
+[Go version](#go-version). No kmesh CI, no e2e, no container image, no `kmeshctl mcp serve`.
 
 ---
 
