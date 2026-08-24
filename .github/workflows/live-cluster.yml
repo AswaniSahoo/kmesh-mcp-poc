@@ -1,0 +1,139 @@
+# Runs this MCP server against a real kmesh-daemon on a kind cluster, rather
+# than against internal/fixture, and publishes what the daemon actually said.
+#
+# The default test suite needs no cluster; this is the other half of that claim.
+# Versions below match kmesh's own test/e2e/run_test.sh so the environment is
+# theirs, not one invented here.
+name: Live cluster
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths-ignore: ['**.md']
+  push:
+    branches: [main]
+    paths-ignore: ['**.md']
+
+permissions:
+  contents: read
+
+env:
+  KIND_VERSION: v0.30.0
+  # Same node image and digest as kmesh test/e2e/run_test.sh:10
+  KIND_NODE_IMAGE: kindest/node:v1.30.0@sha256:047357ac0cfea04663786a612ba1eaba9702bef25227a794b52890dd8bcd692e
+  # kmesh CI covers 1.26/1.27/1.28; the chart's envoyFilter.useLegacyFormat
+  # default targets istio >= 1.26.
+  ISTIO_VERSION: 1.27.5
+  HELM_VERSION: v3.16.3
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Record the environment
+        run: |
+          echo "kernel:  $(uname -r)"
+          echo "go:      $(go version)"
+          docker version --format 'docker:  {{.Server.Version}}'
+
+      - name: Install kind and helm
+        run: |
+          curl -sSLo /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x /tmp/kind
+          sudo mv /tmp/kind /usr/local/bin/kind
+          kind version
+
+          curl -sSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" -o /tmp/helm.tgz
+          tar -xzf /tmp/helm.tgz -C /tmp
+          sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
+          helm version --short
+
+      - name: Create cluster
+        run: |
+          cat <<'EOF' | kind create cluster --name kmesh-live --image "${KIND_NODE_IMAGE}" --config=-
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          nodes:
+          - role: control-plane
+          - role: worker
+          EOF
+          kubectl get nodes -o wide
+
+      - name: Install istio ${{ env.ISTIO_VERSION }} with ambient enabled
+        run: |
+          kubectl get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1 || \
+            kubectl kustomize "github.com/kubernetes-sigs/gateway-api/config/crd/experimental?ref=v1.1.0" | kubectl apply -f -
+          helm repo add istio https://istio-release.storage.googleapis.com/charts
+          helm repo update
+          helm install istio-base istio/base -n istio-system --create-namespace \
+            --version "${ISTIO_VERSION}" --wait
+          helm install istiod istio/istiod -n istio-system \
+            --version "${ISTIO_VERSION}" --set pilot.env.PILOT_ENABLE_AMBIENT=true \
+            --wait --timeout 10m
+          kubectl get pods -n istio-system
+
+      # The chart is kmesh's, not a copy. Their chart already defaults to
+      # ghcr.io/kmesh-net/kmesh:latest and --mode=dual-engine.
+      - name: Check out kmesh for its helm chart
+        uses: actions/checkout@v4
+        with:
+          repository: kmesh-net/kmesh
+          path: .kmesh
+          fetch-depth: 1
+
+      - name: Deploy kmesh (dual-engine)
+        run: |
+          helm install kmesh ./.kmesh/deploy/charts/kmesh-helm \
+            -n kmesh-system --create-namespace \
+            --set deploy.kmesh.containers.kmeshDaemonArgs="--mode=dual-engine --enable-bypass=false --monitoring=true"
+          kubectl rollout status daemonset/kmesh -n kmesh-system --timeout=10m
+          kubectl get pods -n kmesh-system -o wide
+
+      - name: Port-forward the daemon admin API
+        run: |
+          POD=$(kubectl get pods -n kmesh-system -l app=kmesh -o jsonpath='{.items[0].metadata.name}')
+          echo "forwarding $POD :15200"
+          kubectl port-forward -n kmesh-system "$POD" 15200:15200 >/tmp/portforward.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null -m 2 http://localhost:15200/version; then
+              echo "admin API answering after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "admin API never answered"; cat /tmp/portforward.log; exit 1
+
+      - name: Run the live tests against the real daemon
+        env:
+          KMESH_DAEMON_ADDR: localhost:15200
+          LIVE_CAPTURE_DIR: ${{ github.workspace }}/live-capture
+        run: go test -tags live ./internal/mcpserver/ -run TestLive -v
+
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          mkdir -p live-capture
+          kubectl get pods -A -o wide            > live-capture/pods.txt 2>&1 || true
+          kubectl logs -n kmesh-system -l app=kmesh --tail=400 \
+                                                 > live-capture/kmesh.log 2>&1 || true
+          kubectl describe pods -n kmesh-system  > live-capture/kmesh-describe.txt 2>&1 || true
+          uname -r                               > live-capture/kernel.txt 2>&1 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-capture
+          path: live-capture/
+          if-no-files-found: warn
+
+      - name: Tear down
+        if: always()
+        run: kind delete cluster --name kmesh-live || true
