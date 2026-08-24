@@ -328,7 +328,7 @@ func TestGetLoggersReturnsOneLevel(t *testing.T) {
 	cs := newStack(t, kmeshapi.ModeDualEngine).connect(t)
 	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "kmesh_get_loggers",
-		Arguments: map[string]any{"name": "ads"},
+		Arguments: map[string]any{"name": "fileOnly"},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
@@ -338,8 +338,8 @@ func TestGetLoggersReturnsOneLevel(t *testing.T) {
 	if out.Logger == nil {
 		t.Fatal("expected a single logger")
 	}
-	if out.Logger.Name != "ads" || out.Logger.Level != fixture.LoggerLevels["ads"] {
-		t.Fatalf("got %+v, want ads/%s", out.Logger, fixture.LoggerLevels["ads"])
+	if out.Logger.Name != "fileOnly" || out.Logger.Level != fixture.LoggerLevels["fileOnly"] {
+		t.Fatalf("got %+v, want fileOnly/%s", out.Logger, fixture.LoggerLevels["fileOnly"])
 	}
 	if len(out.Names) != 0 {
 		t.Fatalf("names should be absent when selecting one logger, got %v", out.Names)

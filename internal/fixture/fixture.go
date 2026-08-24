@@ -41,18 +41,25 @@ var Version = kmeshapi.VersionInfo{
 	Platform:     "linux/amd64",
 }
 
-// LoggerNames is the fixture's /debug/loggers payload. kmesh appends the
-// "bpf" pseudo-logger to the real logger names (getLoggerNames,
-// pkg/status/status_server.go), so the fixture does too.
-var LoggerNames = []string{"default", "controller", "ads", "workload", "bpf"}
+// LoggerNames is the fixture's /debug/loggers payload.
+//
+// The daemon serves logger.GetLoggerNames() with the "bpf" pseudo-logger
+// appended (getLoggerNames, pkg/status/status_server.go:359-360), and
+// loggerMap holds exactly "default" and "fileOnly"
+// (pkg/logger/logger.go:54-57). This list was previously guessed, and a live
+// daemon disagreed; see TestLiveLoggerNamesMatchFixture.
+//
+// Note that GetLoggerNames ranges over a map, so the two real names arrive in
+// non-deterministic order and a client must not depend on the ordering. Only
+// the trailing "bpf" has a fixed position.
+var LoggerNames = []string{"default", "fileOnly", "bpf"}
 
-// LoggerLevels backs /debug/loggers?name=<name>.
+// LoggerLevels backs /debug/loggers?name=<name>. The names are kmesh's; the
+// levels are invented, like the rest of this package's values.
 var LoggerLevels = map[string]string{
-	"default":    "info",
-	"controller": "info",
-	"ads":        "debug",
-	"workload":   "info",
-	"bpf":        "error",
+	"default":  "info",
+	"fileOnly": "info",
+	"bpf":      "error",
 }
 
 // workloadDump is the dual-engine payload.
