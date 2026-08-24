@@ -98,18 +98,35 @@ jobs:
           kubectl rollout status daemonset/kmesh -n kmesh-system --timeout=10m
           kubectl get pods -n kmesh-system -o wide
 
+      # The pod reports Ready before the admin server binds: StartServer runs
+      # after the controller at daemon/manager/manager.go:103-104. A forwarder
+      # started in that gap dials once, gets connection refused and exits, so
+      # it has to be restarted rather than waited on.
       - name: Port-forward the daemon admin API
         run: |
           POD=$(kubectl get pods -n kmesh-system -l app=kmesh -o jsonpath='{.items[0].metadata.name}')
+          kubectl wait --for=condition=Ready "pod/$POD" -n kmesh-system --timeout=5m
           echo "forwarding $POD :15200"
-          kubectl port-forward -n kmesh-system "$POD" 15200:15200 >/tmp/portforward.log 2>&1 &
+
+          PF=""
           for i in $(seq 1 60); do
-            if curl -sf -o /dev/null -m 2 http://localhost:15200/version; then
-              echo "admin API answering after ${i}s"; exit 0
+            if [ -z "$PF" ] || ! kill -0 "$PF" 2>/dev/null; then
+              kubectl port-forward -n kmesh-system "$POD" 15200:15200 >>/tmp/portforward.log 2>&1 &
+              PF=$!
+              sleep 1
             fi
-            sleep 1
+            if curl -sf -o /dev/null -m 2 http://localhost:15200/version; then
+              echo "admin API answering after ~${i}s (forwarder pid $PF)"
+              echo "PF_PID=$PF" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 2
           done
-          echo "admin API never answered"; cat /tmp/portforward.log; exit 1
+
+          echo "admin API never answered"
+          echo "--- port-forward log ---"; cat /tmp/portforward.log
+          echo "--- daemon log ---"; kubectl logs -n kmesh-system "$POD" --tail=60
+          exit 1
 
       - name: Run the live tests against the real daemon
         env:
