@@ -3,8 +3,8 @@
 0. Startup: the server probes the daemon once for its dataplane mode
 ==============================================================================
 fixture kmesh daemon listening, impersonating a dual-engine dataplane
-GET http://127.0.0.1:60848/debug/config_dump/dual-engine -> 200
-GET http://127.0.0.1:60848/debug/config_dump/kernel-native -> 400 (kmesh answers "Invalid Client Mode" for the mode it is not in)
+GET http://127.0.0.1:55826/debug/config_dump/dual-engine -> 200
+GET http://127.0.0.1:55826/debug/config_dump/kernel-native -> 400 (kmesh answers "Invalid Client Mode" for the mode it is not in)
 => resolved dataplane mode: "dual-engine"
 
 ==============================================================================
@@ -57,7 +57,7 @@ GET http://127.0.0.1:60848/debug/config_dump/kernel-native -> 400 (kmesh answers
         "listChanged": true
       }
     },
-    "instructions": "Read-only access to a kmesh daemon at 127.0.0.1:60848. The daemon reported dataplane mode \"dual-engine\" at startup; kmesh_config_dump uses that mode when its mode argument is omitted."
+    "instructions": "Read-only access to a kmesh daemon at 127.0.0.1:55826. The daemon reported dataplane mode \"dual-engine\" at startup; kmesh_config_dump uses that mode when its mode argument is omitted."
   }
 }
 
@@ -291,11 +291,11 @@ GET http://127.0.0.1:60848/debug/config_dump/kernel-native -> 400 (kmesh answers
     "content": [
       {
         "type": "text",
-        "text": "{\"address\":\"127.0.0.1:60848\",\"daemon\":{\"buildDate\":\"2026-08-02T00:00:00Z\",\"compiler\":\"gc\",\"gitCommit\":\"c88ef300\",\"gitTreeState\":\"clean\",\"gitVersion\":\"v1.2.0-fixture\",\"goVersion\":\"go1.25.0\",\"platform\":\"linux/amd64\"}}"
+        "text": "{\"address\":\"127.0.0.1:55826\",\"daemon\":{\"buildDate\":\"2026-08-02T00:00:00Z\",\"compiler\":\"gc\",\"gitCommit\":\"c88ef300\",\"gitTreeState\":\"clean\",\"gitVersion\":\"v1.2.0-fixture\",\"goVersion\":\"go1.25.0\",\"platform\":\"linux/amd64\"}}"
       }
     ],
     "structuredContent": {
-      "address": "127.0.0.1:60848",
+      "address": "127.0.0.1:55826",
       "daemon": {
         "buildDate": "2026-08-02T00:00:00Z",
         "compiler": "gc",
@@ -349,7 +349,7 @@ GET http://127.0.0.1:60848/debug/config_dump/kernel-native -> 400 (kmesh answers
     "content": [
       {
         "type": "text",
-        "text": "{\"dump\":{\"policies\":[{\"action\":\"ALLOW\",\"name\":\"allow-productpage\",\"namespace\":\"default\",\"rules\":[],\"scope\":\"NAMESPACE\"}],\"services\":[{\"hostname\":\"productpage.default.svc.cluster.local\",\"loadBalancer\":null,\"name\":\"productpage\",\"namespace\":\"default\",\"ports\":[{\"servicePort\":9080,\"targetPort\":9080}],\"vips\":[\"10.96.0.21\"],\"waypoint\":null},{\"hostname\":\"reviews.default.svc.cluster.local\",\"loadBalancer\":{\"mode\":\"FAILOVER\",\"routingPreferences\":[\"NETWORK\",\"REGION\"]},\"name\":\"reviews\",\"namespace\":\"default\",\"ports\":[{\"servicePort\":9080,\"targetPort\":9080}],\"vips\":[\"10.96.0.22\"],\"waypoint\":{\"destination\":\"testnetwork/192.168.1.10\"}}],\"workloads\":[{\"addresses\":[\"10.244.0.11\"],\"applicationTunnel\":{\"protocol\":\"\"},\"canonicalName\":\"productpage\",\"canonicalRevision\":\"v1\",\"clusterId\":\"Kubernetes\",\"locality\":{},\"name\":\"productpage-v1-fixture\",\"namespace\":\"default\",\"network\":\"testnetwork\",\"node\":\"kmesh-worker\",\"protocol\":\"NONE\",\"serviceAccount\":\"bookinfo-productpage\",\"services\":[\"default/productpage.default.svc.cluster.local\"],\"status\":\"HEALTHY\",\"uid\":\"Kubernetes//Pod/default/productpage-v1-fixture\",\"workloadName\":\"productpage-v1\",\"workloadType\":\"POD\"},{\"addresses\":[\"10.244.0.12\"],\"applicationTunnel\":{\"protocol\":\"\"},\"authorizationPolicies\":[\"default/allow-productpage\"],\"canonicalName\":\"reviews\",\"canonicalRevision\":\"v2\",\"clusterId\":\"Kubernetes\",\"locality\":{\"region\":\"us-east-1\",\"zone\":\"us-east-1a\"},\"name\":\"reviews-v2-fixture\",\"namespace\":\"default\",\"network\":\"testnetwork\",\"node\":\"kmesh-worker\",\"protocol\":\"HBONE\",\"serviceAccount\":\"bookinfo-reviews\",\"services\":[\"default/reviews.default.svc.cluster.local\"],\"status\":\"HEALTHY\",\"uid\":\"Kubernetes//Pod/default/reviews-v2-fixture\",\"waypoint\":\"testnetwork/192.168.1.10\",\"workloadName\":\"reviews-v2\",\"workloadType\":\"POD\"}]},\"mode\":\"dual-engine\",\"modeSource\":\"startup-probe\"}"
+        "text": "{\"dump\":{\"policies\":[{\"action\":\"ALLOW\",\"name\":\"allow-productpage\",\"namespace\":\"default\",\"rules\":[],\"scope\":\"NAMESPACE\"}],\"services\":[{\"hostname\":\"productpage.default.svc.cluster.local\",\"loadBalancer\":null,\"name\":\"productpage\",\"namespace\":\"default\",\"ports\":[{\"servicePort\":9080,\"targetPort\":9080}],\"vips\":[\"testnetwork/10.96.0.21\"],\"waypoint\":{\"destination\":\"\"}},{\"hostname\":\"reviews.default.svc.cluster.local\",\"loadBalancer\":{\"mode\":\"FAILOVER\",\"routingPreferences\":[\"NETWORK\",\"REGION\"]},\"name\":\"reviews\",\"namespace\":\"default\",\"ports\":[{\"servicePort\":9080,\"targetPort\":9080}],\"vips\":[\"testnetwork/10.96.0.22\"],\"waypoint\":{\"destination\":\"testnetwork/192.168.1.10\"}}],\"workloads\":[{\"addresses\":[\"10.244.0.11\"],\"applicationTunnel\":{\"protocol\":\"\"},\"canonicalName\":\"productpage\",\"canonicalRevision\":\"v1\",\"clusterId\":\"Kubernetes\",\"locality\":{},\"name\":\"productpage-v1-fixture\",\"namespace\":\"default\",\"network\":\"testnetwork\",\"node\":\"kmesh-worker\",\"protocol\":\"NONE\",\"serviceAccount\":\"bookinfo-productpage\",\"services\":[\"default/productpage.default.svc.cluster.local\"],\"status\":\"HEALTHY\",\"uid\":\"Kubernetes//Pod/default/productpage-v1-fixture\",\"workloadName\":\"productpage-v1\",\"workloadType\":\"POD\"},{\"addresses\":[\"10.244.0.12\"],\"applicationTunnel\":{\"protocol\":\"\"},\"authorizationPolicies\":[\"default/allow-productpage\"],\"canonicalName\":\"reviews\",\"canonicalRevision\":\"v2\",\"clusterId\":\"Kubernetes\",\"locality\":{\"region\":\"us-east-1\",\"zone\":\"us-east-1a\"},\"name\":\"reviews-v2-fixture\",\"namespace\":\"default\",\"network\":\"testnetwork\",\"node\":\"kmesh-worker\",\"protocol\":\"HBONE\",\"serviceAccount\":\"bookinfo-reviews\",\"services\":[\"default/reviews.default.svc.cluster.local\"],\"status\":\"HEALTHY\",\"uid\":\"Kubernetes//Pod/default/reviews-v2-fixture\",\"waypoint\":\"testnetwork/192.168.1.10\",\"workloadName\":\"reviews-v2\",\"workloadType\":\"POD\"}]},\"mode\":\"dual-engine\",\"modeSource\":\"startup-probe\"}"
       }
     ],
     "structuredContent": {
@@ -376,9 +376,11 @@ GET http://127.0.0.1:60848/debug/config_dump/kernel-native -> 400 (kmesh answers
               }
             ],
             "vips": [
-              "10.96.0.21"
+              "testnetwork/10.96.0.21"
             ],
-            "waypoint": null
+            "waypoint": {
+              "destination": ""
+            }
           },
           {
             "hostname": "reviews.default.svc.cluster.local",
@@ -398,7 +400,7 @@ GET http://127.0.0.1:60848/debug/config_dump/kernel-native -> 400 (kmesh answers
               }
             ],
             "vips": [
-              "10.96.0.22"
+              "testnetwork/10.96.0.22"
             ],
             "waypoint": {
               "destination": "testnetwork/192.168.1.10"
@@ -508,15 +510,13 @@ GET http://127.0.0.1:60848/debug/config_dump/kernel-native -> 400 (kmesh answers
     "content": [
       {
         "type": "text",
-        "text": "{\"names\":[\"default\",\"controller\",\"ads\",\"workload\",\"bpf\"]}"
+        "text": "{\"names\":[\"default\",\"fileOnly\",\"bpf\"]}"
       }
     ],
     "structuredContent": {
       "names": [
         "default",
-        "controller",
-        "ads",
-        "workload",
+        "fileOnly",
         "bpf"
       ]
     },
@@ -536,7 +536,7 @@ GET http://127.0.0.1:60848/debug/config_dump/kernel-native -> 400 (kmesh answers
       "io.modelcontextprotocol/protocolVersion": "2026-07-28"
     },
     "arguments": {
-      "name": "ads"
+      "name": "fileOnly"
     },
     "name": "kmesh_get_loggers"
   }
@@ -558,13 +558,13 @@ GET http://127.0.0.1:60848/debug/config_dump/kernel-native -> 400 (kmesh answers
     "content": [
       {
         "type": "text",
-        "text": "{\"logger\":{\"level\":\"debug\",\"name\":\"ads\"}}"
+        "text": "{\"logger\":{\"level\":\"info\",\"name\":\"fileOnly\"}}"
       }
     ],
     "structuredContent": {
       "logger": {
-        "level": "debug",
-        "name": "ads"
+        "level": "info",
+        "name": "fileOnly"
       }
     },
     "resultType": "complete"
@@ -694,11 +694,11 @@ GET http://127.0.0.1:60848/debug/config_dump/kernel-native -> 400 (kmesh answers
     "content": [
       {
         "type": "text",
-        "text": "{\"address\":\"127.0.0.1:60848\",\"daemon\":{\"buildDate\":\"2026-08-02T00:00:00Z\",\"compiler\":\"gc\",\"gitCommit\":\"c88ef300\",\"gitTreeState\":\"clean\",\"gitVersion\":\"v1.2.0-fixture\",\"goVersion\":\"go1.25.0\",\"platform\":\"linux/amd64\"}}"
+        "text": "{\"address\":\"127.0.0.1:55826\",\"daemon\":{\"buildDate\":\"2026-08-02T00:00:00Z\",\"compiler\":\"gc\",\"gitCommit\":\"c88ef300\",\"gitTreeState\":\"clean\",\"gitVersion\":\"v1.2.0-fixture\",\"goVersion\":\"go1.25.0\",\"platform\":\"linux/amd64\"}}"
       }
     ],
     "structuredContent": {
-      "address": "127.0.0.1:60848",
+      "address": "127.0.0.1:55826",
       "daemon": {
         "buildDate": "2026-08-02T00:00:00Z",
         "compiler": "gc",
@@ -790,7 +790,7 @@ Method Not Allowed
     "content": [
       {
         "type": "text",
-        "text": "{\"dump\":{\"policies\":[{\"action\":\"ALLOW\",\"name\":\"allow-productpage\",\"namespace\":\"default\",\"rules\":[],\"scope\":\"NAMESPACE\"}],\"services\":[{\"hostname\":\"productpage.default.svc.cluster.local\",\"loadBalancer\":null,\"name\":\"productpage\",\"namespace\":\"default\",\"ports\":[{\"servicePort\":9080,\"targetPort\":9080}],\"vips\":[\"10.96.0.21\"],\"waypoint\":null},{\"hostname\":\"reviews.default.svc.cluster.local\",\"loadBalancer\":{\"mode\":\"FAILOVER\",\"routingPreferences\":[\"NETWORK\",\"REGION\"]},\"name\":\"reviews\",\"namespace\":\"default\",\"ports\":[{\"servicePort\":9080,\"targetPort\":9080}],\"vips\":[\"10.96.0.22\"],\"waypoint\":{\"destination\":\"testnetwork/192.168.1.10\"}}],\"workloads\":[{\"addresses\":[\"10.244.0.11\"],\"applicationTunnel\":{\"protocol\":\"\"},\"canonicalName\":\"productpage\",\"canonicalRevision\":\"v1\",\"clusterId\":\"Kubernetes\",\"locality\":{},\"name\":\"productpage-v1-fixture\",\"namespace\":\"default\",\"network\":\"testnetwork\",\"node\":\"kmesh-worker\",\"protocol\":\"NONE\",\"serviceAccount\":\"bookinfo-productpage\",\"services\":[\"default/productpage.default.svc.cluster.local\"],\"status\":\"HEALTHY\",\"uid\":\"Kubernetes//Pod/default/productpage-v1-fixture\",\"workloadName\":\"productpage-v1\",\"workloadType\":\"POD\"},{\"addresses\":[\"10.244.0.12\"],\"applicationTunnel\":{\"protocol\":\"\"},\"authorizationPolicies\":[\"default/allow-productpage\"],\"canonicalName\":\"reviews\",\"canonicalRevision\":\"v2\",\"clusterId\":\"Kubernetes\",\"locality\":{\"region\":\"us-east-1\",\"zone\":\"us-east-1a\"},\"name\":\"reviews-v2-fixture\",\"namespace\":\"default\",\"network\":\"testnetwork\",\"node\":\"kmesh-worker\",\"protocol\":\"HBONE\",\"serviceAccount\":\"bookinfo-reviews\",\"services\":[\"default/reviews.default.svc.cluster.local\"],\"status\":\"HEALTHY\",\"uid\":\"Kubernetes//Pod/default/reviews-v2-fixture\",\"waypoint\":\"testnetwork/192.168.1.10\",\"workloadName\":\"reviews-v2\",\"workloadType\":\"POD\"}]},\"mode\":\"dual-engine\",\"modeSource\":\"startup-probe\"}"
+        "text": "{\"dump\":{\"policies\":[{\"action\":\"ALLOW\",\"name\":\"allow-productpage\",\"namespace\":\"default\",\"rules\":[],\"scope\":\"NAMESPACE\"}],\"services\":[{\"hostname\":\"productpage.default.svc.cluster.local\",\"loadBalancer\":null,\"name\":\"productpage\",\"namespace\":\"default\",\"ports\":[{\"servicePort\":9080,\"targetPort\":9080}],\"vips\":[\"testnetwork/10.96.0.21\"],\"waypoint\":{\"destination\":\"\"}},{\"hostname\":\"reviews.default.svc.cluster.local\",\"loadBalancer\":{\"mode\":\"FAILOVER\",\"routingPreferences\":[\"NETWORK\",\"REGION\"]},\"name\":\"reviews\",\"namespace\":\"default\",\"ports\":[{\"servicePort\":9080,\"targetPort\":9080}],\"vips\":[\"testnetwork/10.96.0.22\"],\"waypoint\":{\"destination\":\"testnetwork/192.168.1.10\"}}],\"workloads\":[{\"addresses\":[\"10.244.0.11\"],\"applicationTunnel\":{\"protocol\":\"\"},\"canonicalName\":\"productpage\",\"canonicalRevision\":\"v1\",\"clusterId\":\"Kubernetes\",\"locality\":{},\"name\":\"productpage-v1-fixture\",\"namespace\":\"default\",\"network\":\"testnetwork\",\"node\":\"kmesh-worker\",\"protocol\":\"NONE\",\"serviceAccount\":\"bookinfo-productpage\",\"services\":[\"default/productpage.default.svc.cluster.local\"],\"status\":\"HEALTHY\",\"uid\":\"Kubernetes//Pod/default/productpage-v1-fixture\",\"workloadName\":\"productpage-v1\",\"workloadType\":\"POD\"},{\"addresses\":[\"10.244.0.12\"],\"applicationTunnel\":{\"protocol\":\"\"},\"authorizationPolicies\":[\"default/allow-productpage\"],\"canonicalName\":\"reviews\",\"canonicalRevision\":\"v2\",\"clusterId\":\"Kubernetes\",\"locality\":{\"region\":\"us-east-1\",\"zone\":\"us-east-1a\"},\"name\":\"reviews-v2-fixture\",\"namespace\":\"default\",\"network\":\"testnetwork\",\"node\":\"kmesh-worker\",\"protocol\":\"HBONE\",\"serviceAccount\":\"bookinfo-reviews\",\"services\":[\"default/reviews.default.svc.cluster.local\"],\"status\":\"HEALTHY\",\"uid\":\"Kubernetes//Pod/default/reviews-v2-fixture\",\"waypoint\":\"testnetwork/192.168.1.10\",\"workloadName\":\"reviews-v2\",\"workloadType\":\"POD\"}]},\"mode\":\"dual-engine\",\"modeSource\":\"startup-probe\"}"
       }
     ],
     "structuredContent": {
@@ -817,9 +817,11 @@ Method Not Allowed
               }
             ],
             "vips": [
-              "10.96.0.21"
+              "testnetwork/10.96.0.21"
             ],
-            "waypoint": null
+            "waypoint": {
+              "destination": ""
+            }
           },
           {
             "hostname": "reviews.default.svc.cluster.local",
@@ -839,7 +841,7 @@ Method Not Allowed
               }
             ],
             "vips": [
-              "10.96.0.22"
+              "testnetwork/10.96.0.22"
             ],
             "waypoint": {
               "destination": "testnetwork/192.168.1.10"
@@ -915,7 +917,7 @@ Method Not Allowed
 
 // what the kmesh daemon actually received on its own HTTP request:
    in  (MCP _meta)      traceparent: 00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01
-   out (daemon header)  traceparent: 00-0af7651916cd43dd8448eb211c80319c-d931b7e10a0af054-01
+   out (daemon header)  traceparent: 00-0af7651916cd43dd8448eb211c80319c-ed4df4cb82666e77-01
    out (daemon header)  tracestate:  kmesh=abc
    out (daemon header)  baggage:     userId=42
 

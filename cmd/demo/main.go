@@ -89,7 +89,7 @@ func main() {
 	})
 	exchange(mcpSrv.URL, 6, "tools/call", map[string]any{
 		"name":      "kmesh_get_loggers",
-		"arguments": map[string]any{"name": "ads"},
+		"arguments": map[string]any{"name": "fileOnly"},
 	})
 
 	section("6. Negative: an unknown mode is rejected by the schema, before the handler runs")
