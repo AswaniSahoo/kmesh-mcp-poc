@@ -102,37 +102,67 @@ jobs:
       # after the controller at daemon/manager/manager.go:103-104. A forwarder
       # started in that gap dials once, gets connection refused and exits, so
       # it has to be restarted rather than waited on.
-      - name: Port-forward the daemon admin API
+      # kmesh is a DaemonSet, so this cluster has one daemon per node. Both are
+      # forwarded: the second is what lets the multi-daemon tests measure whether
+      # a tool called without a pod_name is answering for one node or for the mesh.
+      #
+      # The pod reports Ready before the admin server binds: StartServer runs
+      # after the controller at daemon/manager/manager.go:103-104. A forwarder
+      # started in that gap dials once, gets connection refused and exits, so
+      # it has to be restarted rather than waited on.
+      - name: Port-forward both daemon admin APIs
         run: |
-          POD=$(kubectl get pods -n kmesh-system -l app=kmesh -o jsonpath='{.items[0].metadata.name}')
-          kubectl wait --for=condition=Ready "pod/$POD" -n kmesh-system --timeout=5m
-          echo "forwarding $POD :15200"
+          set -u
+          PODS=$(kubectl get pods -n kmesh-system -l app=kmesh -o jsonpath='{.items[*].metadata.name}')
+          echo "kmesh pods: $PODS"
 
-          PF=""
-          for i in $(seq 1 60); do
-            if [ -z "$PF" ] || ! kill -0 "$PF" 2>/dev/null; then
-              kubectl port-forward -n kmesh-system "$POD" 15200:15200 >>/tmp/portforward.log 2>&1 &
-              PF=$!
-              sleep 1
-            fi
-            if curl -sf -o /dev/null -m 2 http://localhost:15200/version; then
-              echo "admin API answering after ~${i}s (forwarder pid $PF)"
-              echo "PF_PID=$PF" >> "$GITHUB_ENV"
-              exit 0
-            fi
-            sleep 2
+          forward() {   # forward <pod> <local-port>
+            local pod="$1" port="$2" pf=""
+            kubectl wait --for=condition=Ready "pod/$pod" -n kmesh-system --timeout=5m
+            for i in $(seq 1 60); do
+              if [ -z "$pf" ] || ! kill -0 "$pf" 2>/dev/null; then
+                kubectl port-forward -n kmesh-system "$pod" "$port":15200 >>"/tmp/pf-$port.log" 2>&1 &
+                pf=$!
+                sleep 1
+              fi
+              if curl -sf -o /dev/null -m 2 "http://localhost:$port/version"; then
+                echo "  $pod answering on :$port after ~${i}s"
+                return 0
+              fi
+              sleep 2
+            done
+            echo "  $pod never answered on :$port"
+            cat "/tmp/pf-$port.log"
+            kubectl logs -n kmesh-system "$pod" --tail=60
+            return 1
+          }
+
+          port=15200
+          addrs=""
+          for pod in $PODS; do
+            forward "$pod" "$port" || exit 1
+            addrs="$addrs localhost:$port"
+            port=$((port + 1))
           done
 
-          echo "admin API never answered"
-          echo "--- port-forward log ---"; cat /tmp/portforward.log
-          echo "--- daemon log ---"; kubectl logs -n kmesh-system "$POD" --tail=60
-          exit 1
+          set -- $addrs
+          echo "KMESH_DAEMON_ADDR=$1" >> "$GITHUB_ENV"
+          if [ "$#" -ge 2 ]; then
+            echo "KMESH_DAEMON_ADDR_2=$2" >> "$GITHUB_ENV"
+          else
+            echo "only one daemon; multi-daemon tests will skip"
+          fi
 
-      - name: Run the live tests against the real daemon
+      # KMESH_DAEMON_ADDR and KMESH_DAEMON_ADDR_2 come from the previous step via
+      # GITHUB_ENV. They are deliberately not set here: a step-level env would
+      # override them and pin the tests to one daemon.
+      - name: Run the live tests against the real daemons
         env:
-          KMESH_DAEMON_ADDR: localhost:15200
           LIVE_CAPTURE_DIR: ${{ github.workspace }}/live-capture
-        run: go test -tags live ./internal/mcpserver/ -run TestLive -v
+        run: |
+          echo "daemon A: ${KMESH_DAEMON_ADDR:-unset}"
+          echo "daemon B: ${KMESH_DAEMON_ADDR_2:-unset}"
+          go test -tags live ./internal/mcpserver/ -run TestLive -v
 
       - name: Collect diagnostics
         if: always()
