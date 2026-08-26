@@ -25,9 +25,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
+	"reflect"
 	"sort"
 	"testing"
 	"time"
@@ -174,9 +174,13 @@ func TestLiveMeshViewAgreesAcrossDaemons(t *testing.T) {
 }
 
 // TestLiveBpfViewIsPerDaemon measures the other route. This one reads the
-// node's own eBPF maps, so it describes one node by construction. The test
-// asserts only that both daemons answer; whether the documents differ is the
-// measurement, and it is reported either way rather than assumed.
+// node's own eBPF maps through Processor.GetBpfCache(), so it can only ever
+// describe the node it was asked on.
+//
+// The comparison is per section and by multiset, not by digest. That matters:
+// these arrays come out of Go maps, so their order is not stable, and a digest
+// comparison reports "different" for two documents holding identical contents.
+// Only a difference in what the sections contain says anything about scope.
 func TestLiveBpfViewIsPerDaemon(t *testing.T) {
 	a, b := liveAddr(t), secondAddr(t)
 
@@ -187,40 +191,100 @@ func TestLiveBpfViewIsPerDaemon(t *testing.T) {
 
 	t.Logf("GET %s -> A:%d (%d bytes)  B:%d (%d bytes)",
 		routeBpfDumpWorkload, codeA, len(bodyA), codeB, len(bodyB))
-
 	if codeA != http.StatusOK || codeB != http.StatusOK {
 		t.Fatalf("both daemons must serve the bpf dump in dual-engine mode; got A=%d B=%d", codeA, codeB)
 	}
 
-	dA, dB := digest(t, bodyA), digest(t, bodyB)
-	t.Logf("digests: A=%s  B=%s", dA, dB)
+	secA, secB := sections(t, bodyA), sections(t, bodyB)
+	names := map[string]bool{}
+	for k := range secA {
+		names[k] = true
+	}
+	for k := range secB {
+		names[k] = true
+	}
+	sorted := make([]string, 0, len(names))
+	for k := range names {
+		sorted = append(sorted, k)
+	}
+	sort.Strings(sorted)
 
-	summarise := func(tag string, body []byte) {
-		var m map[string]any
-		if err := json.Unmarshal(body, &m); err != nil {
-			t.Logf("  %s: not a JSON object (%v)", tag, err)
-			return
-		}
-		keys := make([]string, 0, len(m))
-		for k := range m {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			if arr, ok := m[k].([]any); ok {
-				t.Logf("  %s %s: %d entries", tag, k, len(arr))
+	contentDiffs := 0
+	orderOnly := 0
+	for _, name := range sorted {
+		countA, countB := tally(secA[name]), tally(secB[name])
+		if reflect.DeepEqual(countA, countB) {
+			if reflect.DeepEqual(secA[name], secB[name]) {
+				t.Logf("  %-16s identical (%d entries)", name, len(secA[name]))
 			} else {
-				t.Logf("  %s %s: %s", tag, k, fmt.Sprintf("%T", m[k]))
+				orderOnly++
+				t.Logf("  %-16s same contents, different order (%d entries)", name, len(secA[name]))
+			}
+			continue
+		}
+		contentDiffs++
+		t.Logf("  %-16s CONTENT DIFFERS", name)
+		for entry, nA := range countA {
+			if nB := countB[entry]; nB != nA {
+				t.Logf("      A x%d  B x%d   %s", nA, nB, truncate(entry, 120))
+			}
+		}
+		for entry, nB := range countB {
+			if _, seen := countA[entry]; !seen {
+				t.Logf("      A x0  B x%d   %s", nB, truncate(entry, 120))
 			}
 		}
 	}
-	summarise("A", bodyA)
-	summarise("B", bodyB)
 
-	if dA == dB {
-		t.Log("=> the two nodes' eBPF maps happen to be identical on this cluster")
-		t.Log("   (a two node kind cluster is small; this does not make the route node-independent)")
+	t.Logf("sections differing in content: %d, differing only in order: %d", contentDiffs, orderOnly)
+	if contentDiffs > 0 {
+		t.Log("=> the two nodes' eBPF state is genuinely different, so a get_bpf_maps tool")
+		t.Log("   answering without a pod_name would be describing one node and not saying which")
 	} else {
-		t.Log("=> the two nodes' eBPF maps differ, so a get_bpf_maps tool must name its node")
+		t.Log("=> on this cluster the two nodes' eBPF state happens to match; the route is still")
+		t.Log("   node-scoped by construction, this cluster is just too small to show it")
 	}
+	t.Log("=> either way the arrays are not order-stable, so a client must not diff raw responses")
+}
+
+// sections splits a bpf dump into its top-level arrays, each entry rendered as
+// canonical JSON so entries can be compared and counted.
+func sections(t *testing.T, body []byte) map[string][]string {
+	t.Helper()
+	var raw map[string][]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatalf("bpf dump is not an object of arrays: %v", err)
+	}
+	out := map[string][]string{}
+	for name, entries := range raw {
+		for _, e := range entries {
+			var v any
+			if err := json.Unmarshal(e, &v); err != nil {
+				t.Fatalf("entry in %s: %v", name, err)
+			}
+			canonical, err := json.Marshal(v)
+			if err != nil {
+				t.Fatalf("re-marshal entry in %s: %v", name, err)
+			}
+			out[name] = append(out[name], string(canonical))
+		}
+	}
+	return out
+}
+
+// tally counts each distinct entry. Duplicates are meaningful here: the maps
+// really do hold the same value more than once.
+func tally(entries []string) map[string]int {
+	c := map[string]int{}
+	for _, e := range entries {
+		c[e]++
+	}
+	return c
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
