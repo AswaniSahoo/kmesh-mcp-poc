@@ -245,6 +245,10 @@ func TestLiveBpfViewIsPerDaemon(t *testing.T) {
 		t.Log("   node-scoped by construction, this cluster is just too small to show it")
 	}
 	t.Log("=> either way the arrays are not order-stable, so a client must not diff raw responses")
+	t.Log("=> note: the backend map is keyed by BackendUid (bpfcache/backend.go:29-31) but")
+	t.Log("   WithBackends serialises values only (pkg/status/api.go:266-291), so two distinct")
+	t.Log("   entries sharing an ip render identically and cannot be told apart by a client,")
+	t.Log("   nor correlated with endpoints, which do carry backendUid")
 }
 
 // sections splits a bpf dump into its top-level arrays, each entry rendered as

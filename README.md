@@ -498,6 +498,38 @@ default/kubernetes     "waypoint": {"destination": ""}   "loadBalancer": null
 
 That was found by reading `ConvertService`. This is the same thing on a running daemon.
 
+### What a tool without `pod_name` actually means
+
+Eight of the fifteen tools in #1800 take an optional `pod_name`, and kmesh runs one daemon
+per node, so the contract is ambiguous on paper. The workflow forwards every kmesh pod, and
+the multi-daemon tests measure it instead of arguing about it.
+
+**The xDS view is mesh-wide.** Both daemons returned byte-identical
+`/debug/config_dump/dual-engine` documents: same digest, 15 workloads, 3 services, and both
+agreed on which node each workload sits on. A `config_dump` tool called with no `pod_name`
+is not quietly answering for one node.
+
+**The eBPF view is not.** `/debug/config_dump/bpf/dual-engine` reads that node's own maps via
+`Processor.GetBpfCache()`. Comparing the two daemons section by section, three sections held
+identical contents in a different order, and `backends` genuinely differed: each daemon
+carried two entries for its own kmesh pod ip and one for the other node's, reproducibly and
+symmetrically across independent clusters.
+
+So the answer is per tool, not global: `config_dump` can leave `pod_name` optional,
+`get_bpf_maps` cannot.
+
+Two things fell out of measuring it:
+
+**The arrays are not order-stable.** They come out of Go maps, so repeated calls return the
+same contents in different order. A client that diffs or caches raw responses sees changes
+that did not happen, which matters directly for the `ttlMs` question above.
+
+**The bpf dump drops its map key.** The backend map is keyed by `BackendUid`
+(`bpfcache/backend.go:29-31`) but `WithBackends` (`pkg/status/api.go:266-291`) serialises
+only the value, so two distinct entries sharing an ip are indistinguishable to a caller and
+cannot be correlated with `endpoints`, which do carry `backendUid`. That is what the
+duplicate above actually is.
+
 Captured JSON and daemon logs upload as the `live-capture` artifact on every run.
 
 ---
